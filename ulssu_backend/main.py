@@ -5,6 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# .env 의 OPENAI_API_KEY / DATABASE_URL 등을 환경변수로 로드 (override=False: 이미 설정된 값은 유지).
+# database 모듈이 import 시점에 DATABASE_URL 을 읽으므로 그 전에 호출해야 한다.
+load_dotenv()
 
 import database
 from database import get_db, PostModel, CommentModel, ReactionModel
