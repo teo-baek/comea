@@ -1,6 +1,6 @@
 import os
 import asyncio
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -31,6 +31,10 @@ client = OpenAI()
 
 class PostRequest(BaseModel):
     content: str
+
+
+class ReactionRequest(BaseModel):
+    reaction: str  # "like" | "dislike"
 
 def evaluate_post_quality(user_post: str) -> int:
     system_instruction = """
@@ -75,6 +79,34 @@ def generate_ai_comment(persona_prompt: str, user_post: str, previous_comments: 
     )
     return response.choices[0].message.content
 
+
+def _count_comments(db: Session, post_id: int) -> int:
+    return db.query(CommentModel).filter(CommentModel.post_id == post_id).count()
+
+
+def _count_reactions(db: Session, post_id: int) -> int:
+    return db.query(ReactionModel).filter(ReactionModel.post_id == post_id).count()
+
+
+def _build_chat_history(db: Session, post_id: int) -> str:
+    rows = (
+        db.query(CommentModel)
+        .filter(CommentModel.post_id == post_id)
+        .order_by(CommentModel.id.asc())
+        .all()
+    )
+    return "".join(f"{r.name}: {r.comment}\n" for r in rows)
+
+
+def _generate_more_comments(db: Session, db_post: PostModel, count: int) -> None:
+    """현재 댓글 수를 start 오프셋으로 페르소나를 순환 선택해 count개를 생성. 분량은 랜덤(FR-13)."""
+    start = _count_comments(db, db_post.id)
+    chat_history = _build_chat_history(db, db_post.id)
+    for name, prompt in get_personas(count, start=start):
+        comment_text = generate_ai_comment(prompt, db_post.content, chat_history, pick_length_style())
+        db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
+        chat_history += f"{name}: {comment_text}\n"
+
 # 📌 1. 과거에 저장된 모든 고민 글 + AI 댓글 리스트를 역순(최신순)으로 반환하는 API
 @app.get("/api/posts")
 def get_all_posts(db: Session = Depends(get_db)):
@@ -108,4 +140,37 @@ async def create_post(request: PostRequest, db: Session = Depends(get_db)):
     db.refresh(db_post)  # 자식 레코드(comments) 상태 동기화
     _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드(응답에 comments 포함되도록)
 
+    return db_post
+
+
+# 📌 3. 반응 등록 → 스택 적재 → Final 재계산 → 부족분 생성 → Cap 도달 시 조용히 종료
+@app.post("/api/posts/{post_id}/reaction")
+def react_to_post(post_id: int, request: ReactionRequest, db: Session = Depends(get_db)):
+    db_post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    if db_post is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    if request.reaction not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
+
+    # 카운터 증분이 아니라 개별 레코드(스택)로 적재 → 동시 클릭 경합 제거(FR-9)
+    db.add(ReactionModel(post_id=post_id, reaction_type=request.reaction))
+    db.commit()
+    db.refresh(db_post)
+
+    # 잠긴 스레드는 반응만 기록하고 생성/종료 없음 (FR-8)
+    if not db_post.is_locked:
+        base = compute_base_limit(db_post.score)
+        population = get_current_population()
+        total_reactions = _count_reactions(db, post_id)
+        final = compute_final_limit(base, total_reactions, population)
+        current = _count_comments(db, post_id)
+        if current < final:
+            _generate_more_comments(db, db_post, final - current)
+            db.commit()
+        if should_lock(_count_comments(db, post_id), compute_effective_cap(population)):
+            db_post.is_locked = True  # Cap 도달 → 중재자 없이 조용히 종료(FR-7)
+            db.commit()
+
+    db.refresh(db_post)
+    _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드
     return db_post
