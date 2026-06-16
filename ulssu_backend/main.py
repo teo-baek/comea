@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 from openai import OpenAI
 
 import database
-from database import get_db, PostModel, CommentModel
+from database import get_db, PostModel, CommentModel, ReactionModel
+from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
+from personas import get_personas
+from population import get_current_population
+from comment_style import pick_length_style
 
 # 서버 시작 시 PostgreSQL에 테이블이 없다면 자동으로 생성 (스키마 마이그레이션)
 database.Base.metadata.create_all(bind=database.engine)
@@ -54,8 +58,12 @@ def evaluate_post_quality(user_post: str) -> int:
     except ValueError:
         return 50
 
-def generate_ai_comment(persona_prompt: str, user_post: str, previous_comments: str) -> str:
-    system_instruction = f"너는 'AI 광장'이라는 커뮤니티의 시민이야. 아래 페르소나에 맞춰 2~3줄 내외의 댓글을 달아줘.\n[너의 페르소나]\n{persona_prompt}"
+def generate_ai_comment(persona_prompt: str, user_post: str, previous_comments: str, length_hint: str) -> str:
+    system_instruction = (
+        "너는 'AI 광장'이라는 커뮤니티의 시민이야. 아래 페르소나에 맞춰 댓글을 달아줘.\n"
+        f"[너의 페르소나]\n{persona_prompt}\n"
+        f"[분량] {length_hint}"
+    )
     user_content = f"유저의 게시글: '{user_post}'\n\n[현재 댓글 상황]\n{previous_comments}\n\n의견을 달아줘."
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -77,9 +85,11 @@ def get_all_posts(db: Session = Depends(get_db)):
 @app.post("/api/posts")
 async def create_post(request: PostRequest, db: Session = Depends(get_db)):
     user_post = request.content
-    
+
     score = evaluate_post_quality(user_post)
-    max_comments = 4 if score >= 90 else (2 if score >= 60 else 2)
+    base_limit = compute_base_limit(score)
+    # 반응 0 시점이므로 Final == Base. 초기 생성도 동일 수식 사용(FR-11). 잡담도 최소 10개(FR-1).
+    final_limit = compute_final_limit(base_limit, 0, get_current_population())
 
     # 1. 원문 글 저장하여 고유 ID 확보
     db_post = PostModel(content=user_post, score=score)
@@ -87,27 +97,15 @@ async def create_post(request: PostRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_post)
 
-    persona_pool = [
-        ("냉철 김박사", "T 성향 100%. 팩트 폭행 위주."),
-        ("공감 요정 웅이", "F 성향 100%. 위로와 다른 AI 저격 위주."),
-        ("삐딱 키보드워리어", "냉소적이고 비꼬는 성향. 시비 걸기 좋아함."),
-        ("동네 꼰대 어르신", "허허 웃으며 '라떼는 말이야'를 시전하고 뜬금없는 훈수를 두며 참견함.")
-    ]
-    
+    # 2. Final Limit 만큼 페르소나를 순환 선택해 생성. 분량은 매번 랜덤 변주(FR-13).
     chat_history = ""
-    
-    # 2. AI 배틀을 진행하며 생성되는 댓글을 순차적으로 DB 레코드로 박아넣기
-    for name, prompt in persona_pool:
-        if db.query(CommentModel).filter(CommentModel.post_id == db_post.id).count() >= max_comments:
-            break
-            
-        comment_text = generate_ai_comment(prompt, user_post, chat_history)
-        
-        db_comment = CommentModel(post_id=db_post.id, name=name, comment=comment_text)
-        db.add(db_comment)
+    for name, prompt in get_personas(final_limit):
+        comment_text = generate_ai_comment(prompt, user_post, chat_history, pick_length_style())
+        db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
         chat_history += f"{name}: {comment_text}\n"
-        
-    db.commit() # 트랜잭션 최종 확정
-    db.refresh(db_post) # 자식 레코드(comments) 상태 동기화
+
+    db.commit()       # 트랜잭션 최종 확정
+    db.refresh(db_post)  # 자식 레코드(comments) 상태 동기화
+    _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드(응답에 comments 포함되도록)
 
     return db_post
