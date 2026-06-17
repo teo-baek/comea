@@ -4,6 +4,7 @@ import os
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["OPENAI_API_KEY"] = "test-dummy-key"
 os.environ["JWT_SECRET"] = "test-secret"
+os.environ["DISABLE_SCHEDULER"] = "1"  # 테스트 중 APScheduler 스레드 미기동 (D5)
 
 import pytest
 from fastapi.testclient import TestClient

@@ -14,6 +14,7 @@ load_dotenv()
 import database
 from database import get_db, PostModel, CommentModel, ReactionModel, UserModel
 from auth import hash_password, verify_password, create_token, get_current_user
+from population_batch import start_scheduler, shutdown_scheduler
 from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
 from personas import get_personas
 from population import get_current_population
@@ -34,6 +35,17 @@ app.add_middleware(
 
 # OPENAI_API_KEY 는 환경변수에서 읽는다(소스 하드코딩 금지 — 노출된 기존 키는 폐기/회전 필요).
 client = OpenAI()
+
+
+@app.on_event("startup")
+def _on_startup():
+    # 기동 즉시 인구 집계 + 매일 4시 cron 등록 (테스트는 DISABLE_SCHEDULER 가드로 미기동)
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def _on_shutdown():
+    shutdown_scheduler()
 
 class PostRequest(BaseModel):
     content: str
