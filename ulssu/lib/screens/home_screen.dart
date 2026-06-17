@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'detail_screen.dart';
+import '../services/api.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,6 +10,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final ApiService _api = ApiService();
   List<Map<String, dynamic>> _posts = [];
   final TextEditingController _textController = TextEditingController();
   bool _isLoading = false;
@@ -29,19 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final url = Uri.parse('http://172.28.0.1:8000/api/posts');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> decodedData = jsonDecode(utf8.decode(response.bodyBytes));
-        setState(() {
-          _posts = List<Map<String, dynamic>>.from(decodedData);
-        });
-      } else {
-        _showErrorSnackBar("데이터를 불러오는 중 오류가 발생했습니다.");
-      }
+      final posts = await _api.getPosts();
+      setState(() {
+        _posts = posts;
+      });
     } catch (e) {
-      _showErrorSnackBar("백엔드 서버와 통신할 수 없습니다.");
+      _showErrorSnackBar("데이터를 불러오는 중 오류가 발생했습니다.");
     } finally {
       setState(() {
         _isLoading = false;
@@ -56,27 +49,17 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final url = Uri.parse('http://172.28.0.1:8000/api/posts');
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"content": content}),
-      );
-
-      if (response.statusCode == 200) {
-        final dynamic decodedData = jsonDecode(utf8.decode(response.bodyBytes));
-        
-        setState(() {
-          // 서버가 반환한 영구 저장된 객체를 리스트 맨 앞에 즉시 주입
-          _posts.insert(0, {
-            "content": decodedData["content"],
-            "score": decodedData["score"],
-            "comments": List<Map<String, dynamic>>.from(decodedData["comments"]),
-          });
+      final post = await _api.createPost(content);
+      setState(() {
+        // 서버가 반환한 영구 저장된 객체를 리스트 맨 앞에 즉시 주입 (id 포함 — 반응 호출에 필요)
+        _posts.insert(0, {
+          "id": post["id"],
+          "content": post["content"],
+          "score": post["score"],
+          "is_locked": post["is_locked"],
+          "comments": List<Map<String, dynamic>>.from(post["comments"]),
         });
-      } else {
-        _showErrorSnackBar("서버 응답 오류가 발생했습니다.");
-      }
+      });
     } catch (e) {
       _showErrorSnackBar("서버와 통신할 수 없습니다.");
     } finally {
