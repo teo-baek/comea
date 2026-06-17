@@ -12,8 +12,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import database
-from database import get_db, PostModel, CommentModel, ReactionModel, UserModel
+from database import get_db, PostModel, CommentModel, ReactionModel, UserModel, AiPersonaModel
 from auth import hash_password, verify_password, create_token, get_current_user
+from personas import random_persona
 from population_batch import start_scheduler, shutdown_scheduler
 from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
 from personas import get_personas
@@ -145,6 +146,15 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # 내부 AI 페르소나 1개 생성 (풀에서 랜덤). best-effort — 실패해도 가입은 유지(NFR).
+    try:
+        name, prompt = random_persona()
+        db.add(AiPersonaModel(user_id=user.id, display_name=name, persona_prompt=prompt))
+        db.commit()
+    except Exception:
+        db.rollback()
+
     return {"token": create_token(user.id)}
 
 
