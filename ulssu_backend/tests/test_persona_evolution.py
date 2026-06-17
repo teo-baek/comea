@@ -64,6 +64,7 @@ def test_run_persona_evolution_updates_trait_params(monkeypatch):
     u = _seed_user_reactions(seed)
     seed.add(AiPersonaModel(user_id=u.id, display_name="x", persona_prompt="p"))
     seed.commit()
+    uid = u.id  # 세션 닫기 전에 id 캡처(detached 방지)
     seed.close()
 
     monkeypatch.setattr(database, "SessionLocal", Session)
@@ -71,7 +72,7 @@ def test_run_persona_evolution_updates_trait_params(monkeypatch):
 
     check = Session()
     try:
-        p = check.query(AiPersonaModel).filter(AiPersonaModel.user_id == u.id).first()
+        p = check.query(AiPersonaModel).filter(AiPersonaModel.user_id == uid).first()
         assert p.trait_params["prefs"]["냉철 김박사"] == 1
         assert "냉철 김박사" in p.trait_params["hint"]
     finally:
