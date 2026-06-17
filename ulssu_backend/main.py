@@ -14,6 +14,7 @@ load_dotenv()
 import database
 from database import get_db, PostModel, CommentModel, ReactionModel, UserModel, AiPersonaModel, CommentReactionModel
 from auth import hash_password, verify_password, create_token, get_current_user
+from persona_deployment import select_deployed_personas
 from personas import random_persona
 from population_batch import start_scheduler, shutdown_scheduler
 from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
@@ -192,9 +193,12 @@ async def create_post(
     db.commit()
     db.refresh(db_post)
 
-    # 2. Final Limit 만큼 페르소나를 순환 선택해 생성. 분량은 매번 랜덤 변주(FR-13).
+    # 2. Final Limit 슬롯 = 타 유저 페르소나 출동(최대 2) + 공용 풀. 총 수 불변. 분량 랜덤(FR-13).
+    deployed = select_deployed_personas(db, exclude_user_id=current_user.id, k=2)
+    pool = get_personas(max(final_limit - len(deployed), 0))
+    commenters = (deployed + pool)[:final_limit]
     chat_history = ""
-    for name, prompt in get_personas(final_limit):
+    for name, prompt in commenters:
         comment_text = generate_ai_comment(prompt, user_post, chat_history, pick_length_style())
         db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
         chat_history += f"{name}: {comment_text}\n"
