@@ -1,51 +1,79 @@
 import 'package:flutter/material.dart';
 
+import '../services/api.dart';
+
 class DetailScreen extends StatefulWidget {
+  final int postId;
   final String postContent;
   final int score;
-  final List<Map<String, dynamic>> realComments; // [수정] 서버에서 받아온 진짜 댓글들
+  final List<Map<String, dynamic>> realComments; // 서버에서 받아온 초기 댓글들
+  final ApiService api;
 
-  const DetailScreen({
+  DetailScreen({
     super.key,
+    required this.postId,
     required this.postContent,
     required this.score,
     required this.realComments,
-  });
+    ApiService? api,
+  }) : api = api ?? ApiService();
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
 
 class _DetailScreenState extends State<DetailScreen> {
-  final List<Map<String, dynamic>> _visibleComments = [];
+  late List<Map<String, dynamic>> _allComments; // 지금까지 알려진 전체 댓글
+  final List<Map<String, dynamic>> _visibleComments = []; // 등장 완료된 댓글
   bool _isAiTyping = false;
   String _currentTypingAi = "";
+  bool _isReacting = false;
 
   @override
   void initState() {
     super.initState();
-    // 화면이 켜지면 서버에서 받아온 실제 AI 댓글들로 순차적 등장 연출 가동
-    _simulateAiDispute();
+    _allComments = List<Map<String, dynamic>>.from(widget.realComments);
+    _revealNewComments();
   }
 
-  void _simulateAiDispute() async {
-    // 서버가 준 댓글 개수만큼만 루프 돌기 (점수가 낮으면 알아서 0개 혹은 적은 개수가 됨)
-    for (int i = 0; i < widget.realComments.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 800)); // 생각 시간
-      
+  // 아직 등장하지 않은(_visibleComments 이후) 댓글만 순차적으로 등장시킨다.
+  Future<void> _revealNewComments() async {
+    for (int i = _visibleComments.length; i < _allComments.length; i++) {
+      await Future.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
       setState(() {
         _isAiTyping = true;
-        _currentTypingAi = widget.realComments[i]["name"] as String;
+        _currentTypingAi = _allComments[i]["name"] as String;
       });
 
-      await Future.delayed(const Duration(milliseconds: 1500)); // 키보드 두드리는 시간
-
+      await Future.delayed(const Duration(milliseconds: 1500));
       if (!mounted) return;
       setState(() {
-        _visibleComments.add(widget.realComments[i]);
+        _visibleComments.add(_allComments[i]);
         _isAiTyping = false;
       });
+    }
+  }
+
+  // 좋아요/싫어요 반응 → 갱신된 댓글로 교체 → 늘어난 만큼만 이어서 등장.
+  Future<void> _react(String reaction) async {
+    if (_isReacting) return; // 처리 중 연타 차단 (FR-7)
+    setState(() => _isReacting = true);
+    try {
+      final post = await widget.api.reactToPost(widget.postId, reaction);
+      _allComments = List<Map<String, dynamic>>.from(post["comments"]);
+      await _revealNewComments();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('반응을 전송하지 못했습니다.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isReacting = false);
     }
   }
 
@@ -55,7 +83,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isHot ? '🚨 실시간 끝장 토론' : '💬 대화 광장'),
+        title: Text(isHot ? '🔥 인기 글' : '💬 글'),
         backgroundColor: isHot ? Colors.red.shade50 : Colors.blue.shade50,
       ),
       body: Column(
@@ -69,13 +97,37 @@ class _DetailScreenState extends State<DetailScreen> {
               children: [
                 Text(widget.postContent, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4)),
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('채점 점수: ${widget.score}점', style: TextStyle(fontWeight: FontWeight.bold, color: isHot ? Colors.red : Colors.blue)),
-                    Text('참여 완료: ${_visibleComments.length}/${widget.realComments.length}명', style: const TextStyle(color: Colors.grey)),
-                  ],
+                Text('AI 시민 ${_visibleComments.length}명이 댓글을 남겼어요', style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+
+          // 반응 버튼 줄 (수치 비노출 — 개수 표시 없음, FR-3)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  key: const Key('like-button'),
+                  onPressed: _isReacting ? null : () => _react('like'),
+                  icon: const Icon(Icons.thumb_up_alt_outlined),
+                  label: const Text('좋아요'),
                 ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  key: const Key('dislike-button'),
+                  onPressed: _isReacting ? null : () => _react('dislike'),
+                  icon: const Icon(Icons.thumb_down_alt_outlined),
+                  label: const Text('싫어요'),
+                ),
+                const Spacer(),
+                if (_isReacting)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurple),
+                  ),
               ],
             ),
           ),
@@ -83,7 +135,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
           Expanded(
             child: _visibleComments.isEmpty && !_isAiTyping
-                ? const Center(child: Text('이 글에는 AI 시민들이 조용히 침묵을 지키고 있습니다.', style: TextStyle(color: Colors.grey)))
+                ? const Center(child: Text('아직 댓글이 없어요. 잠시 후 AI 시민들이 댓글을 남깁니다.', style: TextStyle(color: Colors.grey)))
                 : ListView.builder(
                     itemCount: _visibleComments.length,
                     itemBuilder: (context, index) {
@@ -132,7 +184,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurple),
                   ),
                   const SizedBox(width: 12),
-                  Text('⚡ $_currentTypingAi이(가) 키보드 배틀 참여를 준비 중입니다...', style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.w500)),
+                  Text('$_currentTypingAi 님이 댓글을 작성 중...', style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.w500)),
                 ],
               ),
             ),

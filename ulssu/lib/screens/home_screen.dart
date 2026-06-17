@@ -145,6 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             context,
                             MaterialPageRoute(
                               builder: (context) => DetailScreen(
+                                postId: post["id"] as int,
                                 postContent: post["content"] as String,
                                 score: post["score"] as int,
                                 realComments: List<Map<String, dynamic>>.from(post["comments"]),
