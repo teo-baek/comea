@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import database
-from database import get_db, PostModel, CommentModel, ReactionModel, UserModel, AiPersonaModel
+from database import get_db, PostModel, CommentModel, ReactionModel, UserModel, AiPersonaModel, CommentReactionModel
 from auth import hash_password, verify_password, create_token, get_current_user
 from personas import random_persona
 from population_batch import start_scheduler, shutdown_scheduler
@@ -242,3 +242,37 @@ def react_to_post(
     db.refresh(db_post)
     _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드
     return db_post
+
+
+# 📌 4. 댓글 단위 반응(진화 신호 수집) — 유저·댓글당 1개 upsert. 한계선/생성에 영향 없음.
+@app.post("/api/comments/{comment_id}/reaction")
+def react_to_comment(
+    comment_id: int,
+    request: ReactionRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),  # 로그인 필수
+):
+    comment = db.query(CommentModel).filter(CommentModel.id == comment_id).first()
+    if comment is None:
+        raise HTTPException(status_code=404, detail="comment not found")
+    if request.reaction not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
+
+    existing = (
+        db.query(CommentReactionModel)
+        .filter(
+            CommentReactionModel.user_id == current_user.id,
+            CommentReactionModel.comment_id == comment_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        existing.reaction_type = request.reaction  # 재반응 → 교체(upsert)
+    else:
+        db.add(CommentReactionModel(
+            user_id=current_user.id,
+            comment_id=comment_id,
+            reaction_type=request.reaction,
+        ))
+    db.commit()
+    return {"ok": True}  # 개수 비노출 (FR-3)

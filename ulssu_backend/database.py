@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, Text, String, ForeignKey, Boolean, DateTime, func, JSON
+from sqlalchemy import create_engine, Column, Integer, Text, String, ForeignKey, Boolean, DateTime, func, JSON, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
@@ -63,6 +63,17 @@ class AiPersonaModel(Base):
     persona_prompt = Column(Text, nullable=False)
     trait_params = Column(JSON, nullable=True)
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class CommentReactionModel(Base):
+    # 댓글 단위 좋아요/싫어요(진화 신호). 유저·댓글당 1개(upsert). 어떤 페르소나 선호인지는 comments.name 으로 매핑.
+    __tablename__ = "comment_reactions"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    comment_id = Column(Integer, ForeignKey("comments.id"), nullable=False)
+    reaction_type = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    __table_args__ = (UniqueConstraint("user_id", "comment_id", name="uq_user_comment"),)
 
 
 def get_db():
