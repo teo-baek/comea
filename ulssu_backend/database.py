@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, Text, String, ForeignKey, Boolean, DateTime, func
+from sqlalchemy import create_engine, Column, Integer, Text, String, ForeignKey, Boolean, DateTime, func, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
@@ -52,6 +52,17 @@ class UserModel(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class AiPersonaModel(Base):
+    # 유저별 1:1 AI 페르소나(내부). 가입 시 풀에서 랜덤 배정. 진화 엔진(풀 단계)이 trait_params 채움.
+    __tablename__ = "ai_personas"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    display_name = Column(String, nullable=False)
+    persona_prompt = Column(Text, nullable=False)
+    trait_params = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
 def get_db():

@@ -1,4 +1,4 @@
-"""'AI 광장' 시민 페르소나 풀 + 순환 선택기.
+"""'AI 광장' 시민 페르소나 풀 + 순환 선택기 + 랜덤 1개 선택.
 
 상한(Cap)이 유저수만큼 커질 수 있으므로 16종을 정의하고, 요청 수가 풀을 넘으면
 순환 재사용한다. 각 항목은 (이름, 페르소나 프롬프트) 튜플.
@@ -30,3 +30,10 @@ def get_personas(count: int, start: int = 0) -> list[tuple[str, str]]:
         return []
     pool = PERSONA_POOL
     return [pool[(start + i) % len(pool)] for i in range(count)]
+
+
+def random_persona(rng=None):
+    """풀에서 (이름, 프롬프트) 1개를 랜덤 반환. rng 주입 시 결정적."""
+    import random as _random
+    chooser = rng if rng is not None else _random
+    return chooser.choice(PERSONA_POOL)
