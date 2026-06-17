@@ -3,14 +3,17 @@ import 'detail_screen.dart';
 import '../services/api.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ApiService api;
+  final VoidCallback? onLogout;
+
+  HomeScreen({super.key, ApiService? api, this.onLogout}) : api = api ?? ApiService();
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final ApiService _api = ApiService();
+  ApiService get _api => widget.api;
   List<Map<String, dynamic>> _posts = [];
   final TextEditingController _textController = TextEditingController();
   bool _isLoading = false;
@@ -121,7 +124,12 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : _fetchPostsFromDatabase,
-          )
+          ),
+          if (widget.onLogout != null)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: widget.onLogout,
+            ),
         ],
       ),
       body: Stack(
