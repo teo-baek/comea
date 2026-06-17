@@ -80,4 +80,15 @@ class ApiService {
     }
     return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)));
   }
+
+  Future<void> reactToComment(int commentId, String reaction) async {
+    final resp = await _client.post(
+      Uri.parse('$baseUrl/comments/$commentId/reaction'),
+      headers: _headers(auth: true),
+      body: jsonEncode({'reaction': reaction}),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('댓글 반응 전송에 실패했습니다 (${resp.statusCode})');
+    }
+  }
 }

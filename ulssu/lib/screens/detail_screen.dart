@@ -34,6 +34,28 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _isAiTyping = false;
   String _currentTypingAi = "";
   bool _isReacting = false;
+  final Map<int, String> _commentReactions = {}; // comment_id → 'like'|'dislike' (로컬 선택 표시)
+
+  Future<void> _reactToComment(int commentId, String reaction) async {
+    final prev = _commentReactions[commentId];
+    setState(() => _commentReactions[commentId] = reaction);
+    try {
+      await widget.api.reactToComment(commentId, reaction);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (prev == null) {
+            _commentReactions.remove(commentId);
+          } else {
+            _commentReactions[commentId] = prev;
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('댓글 반응을 보내지 못했습니다.'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -173,6 +195,28 @@ class _DetailScreenState extends State<DetailScreen> {
                                     decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
                                     child: Text(comment["comment"] as String, style: const TextStyle(fontSize: 14, height: 1.3)),
                                   ),
+                                  Builder(builder: (_) {
+                                    final cid = comment["id"] as int;
+                                    final picked = _commentReactions[cid];
+                                    return Row(
+                                      children: [
+                                        IconButton(
+                                          iconSize: 18,
+                                          visualDensity: VisualDensity.compact,
+                                          color: picked == 'like' ? Colors.deepPurple : Colors.grey,
+                                          icon: const Icon(Icons.thumb_up_alt_outlined),
+                                          onPressed: () => _reactToComment(cid, 'like'),
+                                        ),
+                                        IconButton(
+                                          iconSize: 18,
+                                          visualDensity: VisualDensity.compact,
+                                          color: picked == 'dislike' ? Colors.deepPurple : Colors.grey,
+                                          icon: const Icon(Icons.thumb_down_alt_outlined),
+                                          onPressed: () => _reactToComment(cid, 'dislike'),
+                                        ),
+                                      ],
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
