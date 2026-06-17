@@ -3,6 +3,7 @@ import os
 # main/database import 전에 반드시 먼저 세팅 (모듈 로드 시 엔진 생성 + create_all 실행됨)
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["OPENAI_API_KEY"] = "test-dummy-key"
+os.environ["JWT_SECRET"] = "test-secret"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,3 +52,12 @@ def client(monkeypatch):
         yield c
     main.app.dependency_overrides.clear()
     population.set_current_population(0)
+
+
+@pytest.fixture
+def auth_client(client):
+    """가입해서 토큰을 받은 뒤 Authorization 헤더를 단 TestClient."""
+    resp = client.post("/api/auth/signup", json={"email": "tester@x.com", "password": "pw123456"})
+    token = resp.json()["token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client

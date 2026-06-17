@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import database
-from database import get_db, PostModel, CommentModel, ReactionModel
+from database import get_db, PostModel, CommentModel, ReactionModel, UserModel
+from auth import hash_password, verify_password, create_token, get_current_user
 from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
 from personas import get_personas
 from population import get_current_population
@@ -40,6 +41,16 @@ class PostRequest(BaseModel):
 
 class ReactionRequest(BaseModel):
     reaction: str  # "like" | "dislike"
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 def evaluate_post_quality(user_post: str) -> int:
     system_instruction = """
@@ -111,6 +122,27 @@ def _generate_more_comments(db: Session, db_post: PostModel, count: int) -> None
         comment_text = generate_ai_comment(prompt, db_post.content, chat_history, pick_length_style())
         db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
         chat_history += f"{name}: {comment_text}\n"
+
+# 📌 0. 인증 — 가입(자동 로그인) / 로그인
+@app.post("/api/auth/signup", status_code=201)
+def signup(request: SignupRequest, db: Session = Depends(get_db)):
+    exists = db.query(UserModel).filter(UserModel.email == request.email).first()
+    if exists is not None:
+        raise HTTPException(status_code=409, detail="email already registered")
+    user = UserModel(email=request.email, password_hash=hash_password(request.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"token": create_token(user.id)}
+
+
+@app.post("/api/auth/login")
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(UserModel).filter(UserModel.email == request.email).first()
+    if user is None or not verify_password(request.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    return {"token": create_token(user.id)}
+
 
 # 📌 1. 과거에 저장된 모든 고민 글 + AI 댓글 리스트를 역순(최신순)으로 반환하는 API
 @app.get("/api/posts")
