@@ -8,8 +8,45 @@ class ApiService {
   static const String baseUrl = 'http://172.28.0.1:8000/api';
 
   final http.Client _client;
+  String? token; // 로그인 후 JWT (보호 요청에 첨부)
 
   ApiService({http.Client? client}) : _client = client ?? http.Client();
+
+  Map<String, String> _headers({bool auth = false}) {
+    final h = {'Content-Type': 'application/json'};
+    if (auth && token != null) h['Authorization'] = 'Bearer $token';
+    return h;
+  }
+
+  Future<String> signup(String email, String password) async {
+    final resp = await _client.post(
+      Uri.parse('$baseUrl/auth/signup'),
+      headers: _headers(),
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+    if (resp.statusCode != 201) {
+      throw Exception('가입에 실패했습니다 (${resp.statusCode})');
+    }
+    token = Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)))['token'] as String;
+    return token!;
+  }
+
+  Future<String> login(String email, String password) async {
+    final resp = await _client.post(
+      Uri.parse('$baseUrl/auth/login'),
+      headers: _headers(),
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('로그인에 실패했습니다 (${resp.statusCode})');
+    }
+    token = Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)))['token'] as String;
+    return token!;
+  }
+
+  void logout() {
+    token = null;
+  }
 
   Future<List<Map<String, dynamic>>> getPosts() async {
     final resp = await _client.get(Uri.parse('$baseUrl/posts'));
@@ -23,7 +60,7 @@ class ApiService {
   Future<Map<String, dynamic>> createPost(String content) async {
     final resp = await _client.post(
       Uri.parse('$baseUrl/posts'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers(auth: true),
       body: jsonEncode({'content': content}),
     );
     if (resp.statusCode != 200) {
@@ -35,7 +72,7 @@ class ApiService {
   Future<Map<String, dynamic>> reactToPost(int postId, String reaction) async {
     final resp = await _client.post(
       Uri.parse('$baseUrl/posts/$postId/reaction'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers(auth: true),
       body: jsonEncode({'reaction': reaction}),
     );
     if (resp.statusCode != 200) {
