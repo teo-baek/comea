@@ -22,6 +22,7 @@ class PostModel(Base):
     content = Column(Text, nullable=False)
     score = Column(Integer, nullable=False)
     is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
+    author_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 익명 호환 NULL (북극성 §4)
     comments = relationship("CommentModel", back_populates="post", cascade="all, delete-orphan")
     # 주의: reactions 관계는 의도적으로 노출하지 않음(직렬화 시 카운트 유출 방지, FR-3).
 
@@ -41,6 +42,15 @@ class ReactionModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     reaction_type = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 누가 눌렀나, 익명 호환 NULL (북극성 §4)
+
+
+class UserModel(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
