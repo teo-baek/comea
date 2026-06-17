@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 /// ulssu 백엔드 HTTP 호출을 한곳에 모은 서비스.
 /// baseUrl 단일화 + http.Client 주입(테스트 시 MockClient 사용).
 class ApiService {
-  static const String baseUrl = 'http://172.28.0.1:8000/api';
+  static const String baseUrl = 'http://127.0.0.1:8000/api';
 
   final http.Client _client;
   String? token; // 로그인 후 JWT (보호 요청에 첨부)
