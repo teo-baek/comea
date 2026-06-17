@@ -152,7 +152,11 @@ def get_all_posts(db: Session = Depends(get_db)):
 
 # 📌 2. 고민 등록 시 채점 및 AI 배틀을 진행하고 그 결과를 PostgreSQL에 영구 저장하는 API
 @app.post("/api/posts")
-async def create_post(request: PostRequest, db: Session = Depends(get_db)):
+async def create_post(
+    request: PostRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),  # 로그인 필수 (FR-4)
+):
     user_post = request.content
 
     score = evaluate_post_quality(user_post)
@@ -160,8 +164,8 @@ async def create_post(request: PostRequest, db: Session = Depends(get_db)):
     # 반응 0 시점이므로 Final == Base. 초기 생성도 동일 수식 사용(FR-11). 잡담도 최소 10개(FR-1).
     final_limit = compute_final_limit(base_limit, 0, get_current_population())
 
-    # 1. 원문 글 저장하여 고유 ID 확보
-    db_post = PostModel(content=user_post, score=score)
+    # 1. 원문 글 저장하여 고유 ID 확보 (작성자 연결 — 북극성 §4)
+    db_post = PostModel(content=user_post, score=score, author_user_id=current_user.id)
     db.add(db_post)
     db.commit()
     db.refresh(db_post)
@@ -182,15 +186,20 @@ async def create_post(request: PostRequest, db: Session = Depends(get_db)):
 
 # 📌 3. 반응 등록 → 스택 적재 → Final 재계산 → 부족분 생성 → Cap 도달 시 조용히 종료
 @app.post("/api/posts/{post_id}/reaction")
-def react_to_post(post_id: int, request: ReactionRequest, db: Session = Depends(get_db)):
+def react_to_post(
+    post_id: int,
+    request: ReactionRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),  # 로그인 필수 (FR-4)
+):
     db_post = db.query(PostModel).filter(PostModel.id == post_id).first()
     if db_post is None:
         raise HTTPException(status_code=404, detail="post not found")
     if request.reaction not in ("like", "dislike"):
         raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
 
-    # 카운터 증분이 아니라 개별 레코드(스택)로 적재 → 동시 클릭 경합 제거(FR-9)
-    db.add(ReactionModel(post_id=post_id, reaction_type=request.reaction))
+    # 카운터 증분이 아니라 개별 레코드(스택)로 적재 → 동시 클릭 경합 제거(FR-9). 반응자 연결(북극성 §4).
+    db.add(ReactionModel(post_id=post_id, reaction_type=request.reaction, user_id=current_user.id))
     db.commit()
     db.refresh(db_post)
 
