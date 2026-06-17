@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 import database
 import population
 from database import UserModel
+from persona_evolution import run_persona_evolution
 
 _scheduler = None
 
@@ -33,9 +34,11 @@ def start_scheduler() -> None:
     if os.getenv("DISABLE_SCHEDULER"):
         return
     global _scheduler
-    run_population_update()  # 기동 즉시 1회 (0 방지, FR-2)
+    run_population_update()    # 기동 즉시 1회 (0 방지, FR-2)
+    run_persona_evolution()    # 기동 즉시 페르소나 진화 1회
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(run_population_update, "cron", hour=4)
+    _scheduler.add_job(run_persona_evolution, "cron", hour=4)
     _scheduler.start()
 
 
