@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../services/api.dart';
+import '../util/reveal_delay.dart';
 
 class DetailScreen extends StatefulWidget {
   final int postId;
@@ -8,6 +11,7 @@ class DetailScreen extends StatefulWidget {
   final int score;
   final List<Map<String, dynamic>> realComments; // 서버에서 받아온 초기 댓글들
   final ApiService api;
+  final Random rng;
 
   DetailScreen({
     super.key,
@@ -16,7 +20,9 @@ class DetailScreen extends StatefulWidget {
     required this.score,
     required this.realComments,
     ApiService? api,
-  }) : api = api ?? ApiService();
+    Random? rng,
+  })  : api = api ?? ApiService(),
+        rng = rng ?? Random();
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -36,17 +42,23 @@ class _DetailScreenState extends State<DetailScreen> {
     _revealNewComments();
   }
 
-  // 아직 등장하지 않은(_visibleComments 이후) 댓글만 순차적으로 등장시킨다.
+  // 아직 등장하지 않은(_visibleComments 이후) 댓글만 순서대로 등장시킨다.
+  // 순서는 백엔드 순서를 유지하고(대화 흐름 보존), 댓글 사이 간격만 랜덤 long-tail.
   Future<void> _revealNewComments() async {
     for (int i = _visibleComments.length; i < _allComments.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 800));
+      // 댓글 사이 랜덤 gap (대부분 짧고 드물게 긴 정적). 등장 직전 ~300ms만 타이핑 플래시.
+      final gap = randomRevealGap(widget.rng);
+      final flash = const Duration(milliseconds: 300);
+      final wait = gap > flash ? gap - flash : Duration.zero;
+
+      await Future.delayed(wait);
       if (!mounted) return;
       setState(() {
         _isAiTyping = true;
         _currentTypingAi = _allComments[i]["name"] as String;
       });
 
-      await Future.delayed(const Duration(milliseconds: 1500));
+      await Future.delayed(flash);
       if (!mounted) return;
       setState(() {
         _visibleComments.add(_allComments[i]);
