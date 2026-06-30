@@ -16,11 +16,11 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/database.py` | **수정** | `AiPersonaModel`(user_id 1:1, display_name, persona_prompt, trait_params JSON, updated_at) 신설 + JSON import. |
-| `ulssu_backend/personas.py` | **수정** | `random_persona(rng=None)` — 풀에서 (이름, 프롬프트) 랜덤 반환(시드 주입 가능). |
-| `ulssu_backend/main.py` | **수정** | `signup`에서 유저 생성 후 AI 페르소나 best-effort 생성. `AiPersonaModel` import. |
-| `ulssu_backend/migrations/003_add_ai_personas.sql` | **생성** | 운영 DB용 멱등 SQL. |
-| `ulssu_backend/tests/test_persona.py` | **생성** | random_persona 풀 멤버·결정성 + signup이 페르소나 생성 + 1:1. |
+| `comea_backend/database.py` | **수정** | `AiPersonaModel`(user_id 1:1, display_name, persona_prompt, trait_params JSON, updated_at) 신설 + JSON import. |
+| `comea_backend/personas.py` | **수정** | `random_persona(rng=None)` — 풀에서 (이름, 프롬프트) 랜덤 반환(시드 주입 가능). |
+| `comea_backend/main.py` | **수정** | `signup`에서 유저 생성 후 AI 페르소나 best-effort 생성. `AiPersonaModel` import. |
+| `comea_backend/migrations/003_add_ai_personas.sql` | **생성** | 운영 DB용 멱등 SQL. |
+| `comea_backend/tests/test_persona.py` | **생성** | random_persona 풀 멤버·결정성 + signup이 페르소나 생성 + 1:1. |
 
 ## 3. 데이터 모델 변경
 

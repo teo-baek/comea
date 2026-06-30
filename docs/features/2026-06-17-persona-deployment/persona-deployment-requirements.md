@@ -48,5 +48,5 @@
 - **id**: CH-20260617-001
 - **이유**: 신규 피처 brainstorming 결과 (내 AI 출동 — 진화 페르소나 댓글 참여)
 - **무엇이**: persona-deployment-requirements.md 전체 (FR-1~6, AC-1~6)
-- **영향범위**: 없음(최초). 후속에서 ulssu_backend(persona_deployment + create_post 연동). 마이그레이션 없음. 북극성 §3 풀 응용.
+- **영향범위**: 없음(최초). 후속에서 comea_backend(persona_deployment + create_post 연동). 마이그레이션 없음. 북극성 §3 풀 응용.
 - **연관 항목**: 없음

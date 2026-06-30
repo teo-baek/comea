@@ -16,10 +16,10 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/population_batch.py` | **생성** | `compute_population(db)`, `run_population_update()`(세션+set+예외격리), `start_scheduler()`/`shutdown_scheduler()`(APScheduler, env 가드). |
-| `ulssu_backend/main.py` | **수정** | `@app.on_event("startup")`/`("shutdown")`에서 스케줄러 start/stop. |
-| `ulssu_backend/tests/conftest.py` | **수정** | `DISABLE_SCHEDULER=1` env (테스트 중 스케줄러 스레드 미기동). |
-| `ulssu_backend/tests/test_population_batch.py` | **생성** | compute_population(N명→N) + run_population_update 주입 검증. |
+| `comea_backend/population_batch.py` | **생성** | `compute_population(db)`, `run_population_update()`(세션+set+예외격리), `start_scheduler()`/`shutdown_scheduler()`(APScheduler, env 가드). |
+| `comea_backend/main.py` | **수정** | `@app.on_event("startup")`/`("shutdown")`에서 스케줄러 start/stop. |
+| `comea_backend/tests/conftest.py` | **수정** | `DISABLE_SCHEDULER=1` env (테스트 중 스케줄러 스레드 미기동). |
+| `comea_backend/tests/test_population_batch.py` | **생성** | compute_population(N명→N) + run_population_update 주입 검증. |
 | `pyproject.toml` | **수정** | `apscheduler` 추가. |
 
 ## 3. 데이터 모델
@@ -57,5 +57,5 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (일일 인구 배치) — requirements 승인 후 작성
 - **무엇이**: daily-population-batch-tech-design.md 전체 (§1~7, 결정 D1~D5)
-- **영향범위**: ulssu_backend(population_batch 신설 + main 기동 이벤트 + conftest 가드)·apscheduler. verifying-spec 4축 green.
+- **영향범위**: comea_backend(population_batch 신설 + main 기동 이벤트 + conftest 가드)·apscheduler. verifying-spec 4축 green.
 - **연관 항목**: CH-20260617-001

@@ -16,9 +16,9 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/persona_deployment.py` | **생성** | `select_deployed_personas(db, exclude_user_id, k=2, rng=None)` → `[(name, prompt+hint)]`. |
-| `ulssu_backend/main.py` | **수정** | `create_post` 댓글 루프: 출동 k + 공용 풀 (final_limit−출동수). import 추가. |
-| `ulssu_backend/tests/test_persona_deployment.py` | **생성** | select 단위(제외/한도/hint) + create_post 통합(타유저 프롬프트 사용·자기 글 제외). |
+| `comea_backend/persona_deployment.py` | **생성** | `select_deployed_personas(db, exclude_user_id, k=2, rng=None)` → `[(name, prompt+hint)]`. |
+| `comea_backend/main.py` | **수정** | `create_post` 댓글 루프: 출동 k + 공용 풀 (final_limit−출동수). import 추가. |
+| `comea_backend/tests/test_persona_deployment.py` | **생성** | select 단위(제외/한도/hint) + create_post 통합(타유저 프롬프트 사용·자기 글 제외). |
 
 신규 의존성·마이그레이션 없음.
 
@@ -58,5 +58,5 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (내 AI 출동) — requirements 승인 후 작성
 - **무엇이**: persona-deployment-tech-design.md 전체 (§1~7, 결정 D1~D6)
-- **영향범위**: ulssu_backend(persona_deployment 신설 + create_post 연동). 마이그레이션 없음. verifying-spec 4축 green.
+- **영향범위**: comea_backend(persona_deployment 신설 + create_post 연동). 마이그레이션 없음. verifying-spec 4축 green.
 - **연관 항목**: CH-20260617-001

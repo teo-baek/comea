@@ -16,13 +16,13 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/database.py` | **수정** | `CommentReactionModel`(user_id, comment_id, reaction_type, created_at, unique(user_id,comment_id)) 신설. |
-| `ulssu_backend/main.py` | **수정** | `POST /api/comments/{comment_id}/reaction` (Depends get_current_user, upsert). |
-| `ulssu_backend/migrations/004_add_comment_reactions.sql` | **생성** | 운영 DB용 멱등 SQL. |
-| `ulssu_backend/tests/test_comment_reaction.py` | **생성** | upsert/401/404/400 통합. |
-| `ulssu/lib/services/api.dart` | **수정** | `reactToComment(commentId, reaction)` (auth 헤더). |
-| `ulssu/lib/screens/detail_screen.dart` | **수정** | 각 댓글 타일에 좋아요/싫어요 버튼 + 로컬 선택 상태. |
-| `ulssu/test/services/api_comment_reaction_test.dart` | **생성** | reactToComment MockClient. |
+| `comea_backend/database.py` | **수정** | `CommentReactionModel`(user_id, comment_id, reaction_type, created_at, unique(user_id,comment_id)) 신설. |
+| `comea_backend/main.py` | **수정** | `POST /api/comments/{comment_id}/reaction` (Depends get_current_user, upsert). |
+| `comea_backend/migrations/004_add_comment_reactions.sql` | **생성** | 운영 DB용 멱등 SQL. |
+| `comea_backend/tests/test_comment_reaction.py` | **생성** | upsert/401/404/400 통합. |
+| `comea/lib/services/api.dart` | **수정** | `reactToComment(commentId, reaction)` (auth 헤더). |
+| `comea/lib/screens/detail_screen.dart` | **수정** | 각 댓글 타일에 좋아요/싫어요 버튼 + 로컬 선택 상태. |
+| `comea/test/services/api_comment_reaction_test.dart` | **생성** | reactToComment MockClient. |
 
 신규 의존성 없음.
 

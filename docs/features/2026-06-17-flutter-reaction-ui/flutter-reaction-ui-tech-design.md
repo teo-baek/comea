@@ -9,17 +9,17 @@ source: flutter-reaction-ui-requirements.md
 
 ## 1. 아키텍처 개요
 
-Flutter 앱(`ulssu/`)은 `StatefulWidget` + `setState` + `http` 패키지 구조다. 현재 HTTP 호출이 화면 위젯에 inline으로 박혀 있고 baseURL이 중복된다. 이번 피처는 **`lib/services/api.dart` 서비스 모듈을 신설**해 baseURL을 1곳으로 모으고 `getPosts/createPost/reactToPost`를 제공한다. `DetailScreen`은 반응 버튼을 갖고, 버튼 탭 시 `ApiService.reactToPost`를 호출해 갱신된 글을 받아 **새로 늘어난 댓글만** 기존 순차 등장 연출로 이어 붙인다. 테스트 가능성을 위해 `ApiService`는 `http.Client` 주입을 받고, `DetailScreen`은 `ApiService` 주입을 받는다(기본값은 실제 구현).
+Flutter 앱(`comea/`)은 `StatefulWidget` + `setState` + `http` 패키지 구조다. 현재 HTTP 호출이 화면 위젯에 inline으로 박혀 있고 baseURL이 중복된다. 이번 피처는 **`lib/services/api.dart` 서비스 모듈을 신설**해 baseURL을 1곳으로 모으고 `getPosts/createPost/reactToPost`를 제공한다. `DetailScreen`은 반응 버튼을 갖고, 버튼 탭 시 `ApiService.reactToPost`를 호출해 갱신된 글을 받아 **새로 늘어난 댓글만** 기존 순차 등장 연출로 이어 붙인다. 테스트 가능성을 위해 `ApiService`는 `http.Client` 주입을 받고, `DetailScreen`은 `ApiService` 주입을 받는다(기본값은 실제 구현).
 
 ## 2. 영향받는 컴포넌트
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu/lib/services/api.dart` | **생성** | `ApiService` — baseURL 상수 1곳 + `getPosts()` / `createPost(content)` / `reactToPost(postId, reaction)`. `http.Client` 주입 가능. |
-| `ulssu/lib/screens/detail_screen.dart` | **수정** | `postId` 파라미터 추가, 좋아요/싫어요 버튼, 가변 댓글 리스트 + 델타 애니메이션, `_isReacting` 가드, FR-10 톤 카피 완화. `ApiService` 주입. |
-| `ulssu/lib/screens/home_screen.dart` | **수정** | inline http → `ApiService` 사용(중복 baseURL 제거). `DetailScreen`에 `postId` 전달. 등록 직후 로컬 insert map에 `id` 포함. |
-| `ulssu/test/services/api_test.dart` | **생성** | `reactToPost` 등 `MockClient` 단위 테스트. |
-| `ulssu/test/screens/detail_reaction_test.dart` | **생성** | 버튼 탭 → 새 댓글 append / 연타 차단 위젯 테스트. |
+| `comea/lib/services/api.dart` | **생성** | `ApiService` — baseURL 상수 1곳 + `getPosts()` / `createPost(content)` / `reactToPost(postId, reaction)`. `http.Client` 주입 가능. |
+| `comea/lib/screens/detail_screen.dart` | **수정** | `postId` 파라미터 추가, 좋아요/싫어요 버튼, 가변 댓글 리스트 + 델타 애니메이션, `_isReacting` 가드, FR-10 톤 카피 완화. `ApiService` 주입. |
+| `comea/lib/screens/home_screen.dart` | **수정** | inline http → `ApiService` 사용(중복 baseURL 제거). `DetailScreen`에 `postId` 전달. 등록 직후 로컬 insert map에 `id` 포함. |
+| `comea/test/services/api_test.dart` | **생성** | `reactToPost` 등 `MockClient` 단위 테스트. |
+| `comea/test/screens/detail_reaction_test.dart` | **생성** | 버튼 탭 → 새 댓글 append / 연타 차단 위젯 테스트. |
 
 신규 의존성 없음 (`http ^1.6.0`의 `package:http/testing.dart` MockClient + `flutter_test` 활용).
 
@@ -68,5 +68,5 @@ Flutter 앱(`ulssu/`)은 `StatefulWidget` + `setState` + `http` 패키지 구조
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (Flutter 반응 버튼 UI) — requirements 승인 후 작성
 - **무엇이**: flutter-reaction-ui-tech-design.md 전체 (§1~7, 결정 D1~D5)
-- **영향범위**: ulssu/ Flutter 코드 — api.dart(신설), detail_screen·home_screen(수정), test 2파일. verifying-spec 4축 green(누락/모순 0).
+- **영향범위**: comea/ Flutter 코드 — api.dart(신설), detail_screen·home_screen(수정), test 2파일. verifying-spec 4축 green(누락/모순 0).
 - **연관 항목**: CH-20260617-001

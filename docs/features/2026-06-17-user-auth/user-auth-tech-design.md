@@ -18,18 +18,18 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/auth.py` | **생성** | `hash_password`/`verify_password`(bcrypt), `create_token`/`decode_token`(PyJWT), `get_current_user`(Depends, 401). JWT_SECRET/만료 env. |
-| `ulssu_backend/database.py` | **수정** | `UserModel`(email unique, password_hash, created_at) 신설 + `PostModel.author_user_id`·`ReactionModel.user_id`(NULL FK) 추가. |
-| `ulssu_backend/main.py` | **수정** | `POST /api/auth/signup`·`/login` 추가, `create_post`·`react_to_post`에 `Depends(get_current_user)` + author/user 연결. |
-| `ulssu_backend/migrations/002_add_users_and_authorship.sql` | **생성** | 운영 DB용 멱등 SQL(users 생성 + author_user_id/user_id 컬럼). |
-| `ulssu_backend/tests/conftest.py` | **수정** | 인증된 TestClient 픽스처(가입+토큰 헤더 주입) + JWT_SECRET 테스트 env. |
-| `ulssu_backend/tests/*` (기존) | **수정** | 보호된 write 호출하는 기존 테스트(create_post/reaction/lock_and_scale)를 인증 클라이언트로 전환. |
-| `ulssu_backend/tests/test_auth.py` | **생성** | 해시/JWT 단위 + signup/login/401 통합. |
-| `ulssu/lib/services/api.dart` | **수정** | `signup`/`login`(토큰 반환), 토큰 보관, 보호 요청에 Authorization 헤더, `logout`. |
-| `ulssu/lib/screens/login_screen.dart`·`signup_screen.dart` | **생성** | 로그인/가입 화면. |
-| `ulssu/lib/main.dart` | **수정** | 토큰 유무로 로그인/홈 분기. |
-| `ulssu/test/*` | **생성/수정** | ApiService 인증 메서드 MockClient 테스트 + 로그인 화면 위젯 테스트. |
-| `pyproject.toml` / `ulssu/pubspec.yaml` | **수정** | `pyjwt`·`bcrypt` / `shared_preferences` 추가. |
+| `comea_backend/auth.py` | **생성** | `hash_password`/`verify_password`(bcrypt), `create_token`/`decode_token`(PyJWT), `get_current_user`(Depends, 401). JWT_SECRET/만료 env. |
+| `comea_backend/database.py` | **수정** | `UserModel`(email unique, password_hash, created_at) 신설 + `PostModel.author_user_id`·`ReactionModel.user_id`(NULL FK) 추가. |
+| `comea_backend/main.py` | **수정** | `POST /api/auth/signup`·`/login` 추가, `create_post`·`react_to_post`에 `Depends(get_current_user)` + author/user 연결. |
+| `comea_backend/migrations/002_add_users_and_authorship.sql` | **생성** | 운영 DB용 멱등 SQL(users 생성 + author_user_id/user_id 컬럼). |
+| `comea_backend/tests/conftest.py` | **수정** | 인증된 TestClient 픽스처(가입+토큰 헤더 주입) + JWT_SECRET 테스트 env. |
+| `comea_backend/tests/*` (기존) | **수정** | 보호된 write 호출하는 기존 테스트(create_post/reaction/lock_and_scale)를 인증 클라이언트로 전환. |
+| `comea_backend/tests/test_auth.py` | **생성** | 해시/JWT 단위 + signup/login/401 통합. |
+| `comea/lib/services/api.dart` | **수정** | `signup`/`login`(토큰 반환), 토큰 보관, 보호 요청에 Authorization 헤더, `logout`. |
+| `comea/lib/screens/login_screen.dart`·`signup_screen.dart` | **생성** | 로그인/가입 화면. |
+| `comea/lib/main.dart` | **수정** | 토큰 유무로 로그인/홈 분기. |
+| `comea/test/*` | **생성/수정** | ApiService 인증 메서드 MockClient 테스트 + 로그인 화면 위젯 테스트. |
+| `pyproject.toml` / `comea/pubspec.yaml` | **수정** | `pyjwt`·`bcrypt` / `shared_preferences` 추가. |
 
 ## 3. 데이터 모델 변경
 
@@ -85,5 +85,5 @@ reactions.user_id      INTEGER NULL REFERENCES users(id)   -- 신규 추가, 익
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (유저 인증 최소) — requirements 승인 후 작성
 - **무엇이**: user-auth-tech-design.md 전체 (§1~7, 결정 D1~D6)
-- **영향범위**: ulssu_backend(auth/JWT/스키마/기존 테스트 전환)·migrations/002·ulssu(Flutter 로그인 UI)·신규 의존성(pyjwt·bcrypt·shared_preferences). 북극성 §4 정합. verifying-spec 4축 green.
+- **영향범위**: comea_backend(auth/JWT/스키마/기존 테스트 전환)·migrations/002·comea(Flutter 로그인 UI)·신규 의존성(pyjwt·bcrypt·shared_preferences). 북극성 §4 정합. verifying-spec 4축 green.
 - **연관 항목**: CH-20260617-001

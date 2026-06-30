@@ -23,19 +23,19 @@ commit_policy: per-task
 ### Task 1: `reveal_delay` 순수 함수 + 유닛 테스트
 
 **Files:**
-- Create: `ulssu/lib/util/reveal_delay.dart`
-- Test: `ulssu/test/util/reveal_delay_test.dart`
+- Create: `comea/lib/util/reveal_delay.dart`
+- Test: `comea/test/util/reveal_delay_test.dart`
 
 **Model**: sonnet
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-**수정 후** (new file: `ulssu/test/util/reveal_delay_test.dart`):
+**수정 후** (new file: `comea/test/util/reveal_delay_test.dart`):
 ```dart
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ulssu/util/reveal_delay.dart';
+import 'package:comea/util/reveal_delay.dart';
 
 void main() {
   test('gap은 0~30초 범위 안에 있다', () {
@@ -67,12 +67,12 @@ void main() {
 
 - [ ] **Step 2: 테스트 실패 확인**
 
-Run: `cd ulssu && flutter test test/util/reveal_delay_test.dart`
-Expected: FAIL — `Error: Couldn't resolve the package 'ulssu/util/reveal_delay.dart'`
+Run: `cd comea && flutter test test/util/reveal_delay_test.dart`
+Expected: FAIL — `Error: Couldn't resolve the package 'comea/util/reveal_delay.dart'`
 
 - [ ] **Step 3: 구현 작성**
 
-**수정 후** (new file: `ulssu/lib/util/reveal_delay.dart`):
+**수정 후** (new file: `comea/lib/util/reveal_delay.dart`):
 ```dart
 import 'dart:math';
 
@@ -90,13 +90,13 @@ Duration randomRevealGap(Random rng) {
 
 - [ ] **Step 4: 테스트 통과 확인**
 
-Run: `cd ulssu && flutter test test/util/reveal_delay_test.dart`
+Run: `cd comea && flutter test test/util/reveal_delay_test.dart`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add ulssu/lib/util/reveal_delay.dart ulssu/test/util/reveal_delay_test.dart
+git add comea/lib/util/reveal_delay.dart comea/test/util/reveal_delay_test.dart
 git commit -m "feat(flutter): 댓글 등장 랜덤 long-tail gap 순수 함수 + 유닛테스트"
 ```
 
@@ -105,8 +105,8 @@ git commit -m "feat(flutter): 댓글 등장 랜덤 long-tail gap 순수 함수 +
 ### Task 2: detail_screen 등장 루프를 랜덤 gap으로 교체
 
 **Files:**
-- Modify: `ulssu/lib/screens/detail_screen.dart` (import, 생성자 Random 주입, `_revealNewComments` 로직)
-- Test: `ulssu/test/screens/detail_reveal_test.dart`
+- Modify: `comea/lib/screens/detail_screen.dart` (import, 생성자 Random 주입, `_revealNewComments` 로직)
+- Test: `comea/test/screens/detail_reveal_test.dart`
 
 **Model**: sonnet
 
@@ -114,7 +114,7 @@ git commit -m "feat(flutter): 댓글 등장 랜덤 long-tail gap 순수 함수 +
 
 - [ ] **Step 1: 실패하는 위젯 테스트 작성**
 
-**수정 후** (new file: `ulssu/test/screens/detail_reveal_test.dart`):
+**수정 후** (new file: `comea/test/screens/detail_reveal_test.dart`):
 ```dart
 import 'dart:convert';
 import 'dart:math';
@@ -123,8 +123,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:ulssu/screens/detail_screen.dart';
-import 'package:ulssu/services/api.dart';
+import 'package:comea/screens/detail_screen.dart';
+import 'package:comea/services/api.dart';
 
 void main() {
   testWidgets('댓글이 백엔드 순서대로 결정적으로 등장한다', (tester) async {
@@ -167,12 +167,12 @@ void main() {
 
 - [ ] **Step 2: 테스트 실패 확인**
 
-Run: `cd ulssu && flutter test test/screens/detail_reveal_test.dart`
+Run: `cd comea && flutter test test/screens/detail_reveal_test.dart`
 Expected: FAIL — DetailScreen에 `rng` 파라미터 부재로 컴파일 실패
 
 - [ ] **Step 3: import + Random 주입 (생성자)**
 
-**원본** (`ulssu/lib/screens/detail_screen.dart:1-19`):
+**원본** (`comea/lib/screens/detail_screen.dart:1-19`):
 ```dart
 import 'package:flutter/material.dart';
 
@@ -226,7 +226,7 @@ class DetailScreen extends StatefulWidget {
 
 - [ ] **Step 4: `_revealNewComments`를 랜덤 gap + 짧은 타이핑 플래시로 교체**
 
-**원본** (`ulssu/lib/screens/detail_screen.dart:39-56`):
+**원본** (`comea/lib/screens/detail_screen.dart:39-56`):
 ```dart
   // 아직 등장하지 않은(_visibleComments 이후) 댓글만 순차적으로 등장시킨다.
   Future<void> _revealNewComments() async {
@@ -278,18 +278,18 @@ class DetailScreen extends StatefulWidget {
 
 - [ ] **Step 5: 위젯 테스트 통과 확인**
 
-Run: `cd ulssu && flutter test test/screens/detail_reveal_test.dart`
+Run: `cd comea && flutter test test/screens/detail_reveal_test.dart`
 Expected: PASS (1 test)
 
 - [ ] **Step 6: 전체 테스트 + 정적 분석**
 
-Run: `cd ulssu && flutter test && flutter analyze`
+Run: `cd comea && flutter test && flutter analyze`
 Expected: 모든 테스트 PASS + `No issues found!` (reaction 슬라이스 테스트 포함 전부 green)
 
 - [ ] **Step 7: 커밋**
 
 ```bash
-git add ulssu/lib/screens/detail_screen.dart ulssu/test/screens/detail_reveal_test.dart
+git add comea/lib/screens/detail_screen.dart comea/test/screens/detail_reveal_test.dart
 git commit -m "feat(flutter): 댓글 등장을 랜덤 long-tail gap으로(순서 유지) + 위젯테스트"
 ```
 
@@ -297,8 +297,8 @@ git commit -m "feat(flutter): 댓글 등장을 랜덤 long-tail gap으로(순서
 
 ## 2. 위험 코드 지점
 
-- `ulssu/lib/screens/detail_screen.dart:_revealNewComments` — **side-effect**: gap이 순차 누적이라 댓글 많은 글은 전체 등장이 수십 초~분 소요 가능. (mitigation: 거듭제곱 스큐로 대부분 짧음 + 속도 비요구(NFR). 사용자 이탈해도 무방.)
-- `ulssu/lib/screens/detail_screen.dart:_revealNewComments` — **race**: `Future.delayed` 대기 중 화면 dispose 또는 반응으로 재진입 시 `setState`/중복 루프. (mitigation: 각 await 뒤 `if (!mounted) return` 유지 + "안 보인 댓글부터(`_visibleComments.length`)" 이어가는 인덱스 로직으로 중복 등장 방지. ④ 반응 경로와 동일 패턴.)
+- `comea/lib/screens/detail_screen.dart:_revealNewComments` — **side-effect**: gap이 순차 누적이라 댓글 많은 글은 전체 등장이 수십 초~분 소요 가능. (mitigation: 거듭제곱 스큐로 대부분 짧음 + 속도 비요구(NFR). 사용자 이탈해도 무방.)
+- `comea/lib/screens/detail_screen.dart:_revealNewComments` — **race**: `Future.delayed` 대기 중 화면 dispose 또는 반응으로 재진입 시 `setState`/중복 루프. (mitigation: 각 await 뒤 `if (!mounted) return` 유지 + "안 보인 댓글부터(`_visibleComments.length`)" 이어가는 인덱스 로직으로 중복 등장 방지. ④ 반응 경로와 동일 패턴.)
 
 ## 3. 롤백 전략
 
@@ -314,13 +314,13 @@ git commit -m "feat(flutter): 댓글 등장을 랜덤 long-tail gap으로(순서
 - **id**: CH-20260617-003
 - **이유**: 신규 구현계획서 작성 (댓글 랜덤 딜레이 연출, 2 TDD task)
 - **무엇이**: comment-reveal-delay-implementation-plan.md §1(Task 1~2), §2 위험, §3 롤백
-- **영향범위**: ulssu/ — reveal_delay.dart(신설), detail_screen(수정), test 2파일. 위젯 테스트 pump 타이밍(누적 95s) 자체점검에서 보정.
+- **영향범위**: comea/ — reveal_delay.dart(신설), detail_screen(수정), test 2파일. 위젯 테스트 pump 타이밍(누적 95s) 자체점검에서 보정.
 - **연관 항목**: CH-20260617-001, CH-20260617-002
 
 ### [2026-06-17 11:35] [코드-수정] (batch: tasks 1..2)
 - **id**: CH-20260617-004
 - **이유**: 댓글 순차 등장 랜덤 딜레이 연출 구현(2 TDD task). 고정 딜레이 → long-tail gap(순서 유지).
-- **무엇이**: `ulssu/lib/util/reveal_delay.dart`(신설), `ulssu/lib/screens/detail_screen.dart`, `ulssu/test/util/reveal_delay_test.dart`(신설), `ulssu/test/screens/detail_reveal_test.dart`(신설)
+- **무엇이**: `comea/lib/util/reveal_delay.dart`(신설), `comea/lib/screens/detail_screen.dart`, `comea/test/util/reveal_delay_test.dart`(신설), `comea/test/screens/detail_reveal_test.dart`(신설)
 - **영향범위**: DetailScreen에 `rng` optional 파라미터 추가(호출부 무영향). 등장 연출만 변경, 백엔드/데이터 무변경. ④ 반응 경로의 _revealNewComments 재사용 → 반응 추가 댓글도 동일 적용.
 - **위험 카테고리**: side-effect(gap 누적 지연), race(대기 중 dispose) — §2 사전 식별, mounted 가드로 완화
 - **task별 세부 (2건)**:

@@ -9,16 +9,16 @@ source: comment-reveal-delay-requirements.md
 
 ## 1. 아키텍처 개요
 
-클라이언트(`ulssu/`) 전용 변경. 백엔드 무변경. `detail_screen`의 등장 루프(`_revealNewComments`)가 현재 고정 딜레이(생각 800ms + 작성 1500ms)를 쓰는데, 이를 **댓글마다 랜덤 long-tail gap** 으로 바꾼다. 단, **댓글 순서는 그대로(백엔드 순서)** — 랜덤은 gap에만. gap 분포 계산은 외부 의존 없는 **순수 함수 + 주입형 `Random`** 으로 분리해 단위 테스트와 위젯 테스트가 결정적이게 한다.
+클라이언트(`comea/`) 전용 변경. 백엔드 무변경. `detail_screen`의 등장 루프(`_revealNewComments`)가 현재 고정 딜레이(생각 800ms + 작성 1500ms)를 쓰는데, 이를 **댓글마다 랜덤 long-tail gap** 으로 바꾼다. 단, **댓글 순서는 그대로(백엔드 순서)** — 랜덤은 gap에만. gap 분포 계산은 외부 의존 없는 **순수 함수 + 주입형 `Random`** 으로 분리해 단위 테스트와 위젯 테스트가 결정적이게 한다.
 
 ## 2. 영향받는 컴포넌트
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu/lib/util/reveal_delay.dart` | **생성** | `Duration randomRevealGap(Random rng)` — long-tail(중앙값 ~2초, 최대 30초) gap 생성. 순수 + 시드 주입. |
-| `ulssu/lib/screens/detail_screen.dart` | **수정** | `_revealNewComments`를 고정 딜레이 → `randomRevealGap(_rng)` 순차 적용으로 교체(순서 유지). `Random` 주입(기본 `Random()`). 2단계 연출 제거 → gap 뒤 짧은 타이핑 플래시 후 등장. |
-| `ulssu/test/util/reveal_delay_test.dart` | **생성** | gap 범위/분포(시드별) 단위 테스트. |
-| `ulssu/test/screens/detail_reveal_test.dart` | **생성** | 시드 주입 시 댓글이 백엔드 순서대로·결정적으로 등장하는지 위젯 테스트. |
+| `comea/lib/util/reveal_delay.dart` | **생성** | `Duration randomRevealGap(Random rng)` — long-tail(중앙값 ~2초, 최대 30초) gap 생성. 순수 + 시드 주입. |
+| `comea/lib/screens/detail_screen.dart` | **수정** | `_revealNewComments`를 고정 딜레이 → `randomRevealGap(_rng)` 순차 적용으로 교체(순서 유지). `Random` 주입(기본 `Random()`). 2단계 연출 제거 → gap 뒤 짧은 타이핑 플래시 후 등장. |
+| `comea/test/util/reveal_delay_test.dart` | **생성** | gap 범위/분포(시드별) 단위 테스트. |
+| `comea/test/screens/detail_reveal_test.dart` | **생성** | 시드 주입 시 댓글이 백엔드 순서대로·결정적으로 등장하는지 위젯 테스트. |
 
 신규 의존성 없음 (`dart:math` Random).
 
@@ -56,5 +56,5 @@ source: comment-reveal-delay-requirements.md
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (댓글 랜덤 딜레이 연출) — requirements 승인 후 작성
 - **무엇이**: comment-reveal-delay-tech-design.md 전체 (§1~7, 결정 D1~D4)
-- **영향범위**: ulssu/ — reveal_delay.dart(신설), detail_screen(수정), test 2파일. 백엔드 무변경. verifying-spec 4축 green.
+- **영향범위**: comea/ — reveal_delay.dart(신설), detail_screen(수정), test 2파일. 백엔드 무변경. verifying-spec 4축 green.
 - **연관 항목**: CH-20260617-001

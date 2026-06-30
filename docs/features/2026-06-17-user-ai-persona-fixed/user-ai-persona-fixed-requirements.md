@@ -49,5 +49,5 @@
 - **id**: CH-20260617-001
 - **이유**: 신규 피처 brainstorming 결과 (유저별 AI 페르소나 중간=고정·내부). 진화 입력(글+반응)은 이미 축적 중임을 명시.
 - **무엇이**: user-ai-persona-fixed-requirements.md 전체 (FR-1~5, AC-1~5)
-- **영향범위**: 없음(최초). 후속에서 ulssu_backend(ai_personas + signup 훅 + migration). 북극성 §3 중간. 진화 엔진은 다음 슬라이스.
+- **영향범위**: 없음(최초). 후속에서 comea_backend(ai_personas + signup 훅 + migration). 북극성 §3 중간. 진화 엔진은 다음 슬라이스.
 - **연관 항목**: 없음

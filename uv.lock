@@ -689,7 +689,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ulssu"
+name = "comea"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -16,9 +16,9 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 
 | 파일 | 작업 | 책임 |
 |---|---|---|
-| `ulssu_backend/persona_evolution.py` | **생성** | `compute_persona_preferences`, `build_prompt_hint`, `run_persona_evolution`. |
-| `ulssu_backend/population_batch.py` | **수정** | `start_scheduler`에서 기동 즉시 + 매일 4시 `run_persona_evolution`도 실행/등록. |
-| `ulssu_backend/tests/test_persona_evolution.py` | **생성** | 합산/힌트/진화 단위. |
+| `comea_backend/persona_evolution.py` | **생성** | `compute_persona_preferences`, `build_prompt_hint`, `run_persona_evolution`. |
+| `comea_backend/population_batch.py` | **수정** | `start_scheduler`에서 기동 즉시 + 매일 4시 `run_persona_evolution`도 실행/등록. |
+| `comea_backend/tests/test_persona_evolution.py` | **생성** | 합산/힌트/진화 단위. |
 
 신규 의존성·마이그레이션 없음.
 
@@ -56,5 +56,5 @@ north_star: docs/architecture/user-ai-persona-north-star.md
 - **id**: CH-20260617-002
 - **이유**: 신규 기술설계 (페르소나 진화 엔진) — requirements 승인 후 작성
 - **무엇이**: persona-evolution-engine-tech-design.md 전체 (§1~7, 결정 D1~D5)
-- **영향범위**: ulssu_backend(persona_evolution 신설 + population_batch 스케줄러 연동). 마이그레이션 없음. verifying-spec 4축 green.
+- **영향범위**: comea_backend(persona_evolution 신설 + population_batch 스케줄러 연동). 마이그레이션 없음. verifying-spec 4축 green.
 - **연관 항목**: CH-20260617-001

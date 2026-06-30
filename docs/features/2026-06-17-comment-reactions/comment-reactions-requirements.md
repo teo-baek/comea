@@ -52,5 +52,5 @@
 - **id**: CH-20260617-001
 - **이유**: 신규 피처 brainstorming 결과 (댓글 단위 반응 — 진화 엔진 선행 신호 수집)
 - **무엇이**: comment-reactions-requirements.md 전체 (FR-1~6, AC-1~6)
-- **영향범위**: 없음(최초). 후속에서 ulssu_backend(comment_reactions+엔드포인트+migration) + ulssu(댓글 타일 버튼). 글 단위 반응 불변. 북극성 §3 풀 선행.
+- **영향범위**: 없음(최초). 후속에서 comea_backend(comment_reactions+엔드포인트+migration) + comea(댓글 타일 버튼). 글 단위 반응 불변. 북극성 §3 풀 선행.
 - **연관 항목**: 없음

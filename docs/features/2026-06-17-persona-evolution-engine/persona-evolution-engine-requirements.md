@@ -51,5 +51,5 @@
 - **id**: CH-20260617-001
 - **이유**: 신규 피처 brainstorming 결과 (페르소나 진화 엔진 — Phase 3 정점). 힌트 포함 승인.
 - **무엇이**: persona-evolution-engine-requirements.md 전체 (FR-1~6, AC-1~6)
-- **영향범위**: 없음(최초). 후속에서 ulssu_backend(persona_evolution + 일일배치 연동). trait_params 컬럼(이미 존재) 사용 — 마이그레이션 없음. 북극성 §3 풀.
+- **영향범위**: 없음(최초). 후속에서 comea_backend(persona_evolution + 일일배치 연동). trait_params 컬럼(이미 존재) 사용 — 마이그레이션 없음. 북극성 §3 풀.
 - **연관 항목**: 없음

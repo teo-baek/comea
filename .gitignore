@@ -13,5 +13,8 @@ wheels/
 # Test caches
 .pytest_cache/
 
+# Local SQLite dev/test database
+*.db
+
 # Claude Code — 개인 로컬 설정만 제외(공유 settings.json 은 커밋)
 .claude/settings.local.json

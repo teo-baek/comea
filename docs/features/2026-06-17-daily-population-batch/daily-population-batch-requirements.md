@@ -48,5 +48,5 @@
 - **id**: CH-20260617-001
 - **이유**: 신규 피처 brainstorming 결과 (일일 인구 배치 — user-auth로 잠금 해제)
 - **무엇이**: daily-population-batch-requirements.md 전체 (FR-1~5, AC-1~5)
-- **영향범위**: 없음(최초). 후속에서 ulssu_backend(population_batch + main 기동 이벤트 + apscheduler). 북극성 §2 정합.
+- **영향범위**: 없음(최초). 후속에서 comea_backend(population_batch + main 기동 이벤트 + apscheduler). 북극성 §2 정합.
 - **연관 항목**: 없음
