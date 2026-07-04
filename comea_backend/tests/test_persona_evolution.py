@@ -30,8 +30,9 @@ def _seed_user_reactions(db):
     db.add(post)
     db.commit()
     db.refresh(post)
-    c1 = CommentModel(post_id=post.id, name="냉철 김박사", comment="a")
-    c2 = CommentModel(post_id=post.id, name="공감 요정 웅이", comment="b")
+    # 스테이지 2 스키마(스펙 §3): faction/persona_name/content 필수 컬럼
+    c1 = CommentModel(post_id=post.id, faction="ally", persona_name="냉철 김박사", content="a", turn_index=0)
+    c2 = CommentModel(post_id=post.id, faction="challenger", persona_name="공감 요정 웅이", content="b", turn_index=1)
     db.add_all([c1, c2])
     db.commit()
     db.refresh(c1)

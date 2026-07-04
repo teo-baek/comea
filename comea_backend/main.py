@@ -1,282 +1,336 @@
-import os
+"""Comea 스테이지 1+2 API 레이어 (스펙 §8) — 포트 8247.
+
+- 글 작성은 **즉시 201** 반환. 채점/진영 토론은 debate 파이프라인(BackgroundTasks)이 수행.
+- OpenAI 직접 호출 없음 — 채점은 grader, 댓글 생성은 debate 모듈 소관.
+- 반응 처리 후 debate.check_reignite 로 종결 글 재점화 여부를 검사한다.
+- 기동 시 grading/debating 잔류 글을 스캔해 파이프라인을 재개한다 (재시작 복구).
+"""
 import asyncio
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from openai import OpenAI
+import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-# .env 의 OPENAI_API_KEY / DATABASE_URL 등을 환경변수로 로드 (override=False: 이미 설정된 값은 유지).
-# database 모듈이 import 시점에 DATABASE_URL 을 읽으므로 그 전에 호출해야 한다.
-load_dotenv()
+# 루트 .env 로드 (override=False: 이미 설정된 환경변수 — 테스트 conftest 값 등 — 은 유지).
+# database 모듈이 import 시점에 DATABASE_URL 을 읽으므로 반드시 그 전에 호출한다.
+_ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV)
+else:
+    load_dotenv()  # 폴백: cwd 기준 탐색 (기존 방식)
 
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+import ai_client
 import database
-from database import get_db, PostModel, CommentModel, ReactionModel, UserModel, AiPersonaModel, CommentReactionModel
-from auth import hash_password, verify_password, create_token, get_current_user
-from persona_deployment import select_deployed_personas
-from personas import random_persona
-from population_batch import start_scheduler, shutdown_scheduler
-from elastic_limit import compute_base_limit, compute_final_limit, compute_effective_cap, should_lock
-from personas import get_personas
-from population import get_current_population
-from comment_style import pick_length_style
+import debate
+from auth import (
+    create_token,
+    get_current_user,
+    get_current_user_optional,
+    hash_password,
+    verify_password,
+)
+from database import (
+    AiPersonaModel,
+    CommentModel,
+    CommentReactionModel,
+    PostModel,
+    ReactionModel,
+    UserModel,
+    get_db,
+)
+from population_batch import shutdown_scheduler, start_scheduler
+from schemas import (
+    CommentOut,
+    LoginIn,
+    PostCreateIn,
+    PostDetailOut,
+    PostSummaryOut,
+    ReactionIn,
+    SignupIn,
+    build_comment_out,
+    build_post_detail,
+    build_post_summary,
+)
 
-# 서버 시작 시 PostgreSQL에 테이블이 없다면 자동으로 생성 (스키마 마이그레이션)
+# 서버 시작 시 테이블이 없으면 자동 생성 (런타임 마이그레이션은 create_all — 스펙 §3)
 database.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(title="comea AI Square Backend")
+app = FastAPI(title="Comea Backend")
 
+# Flutter 웹(다른 origin)에서의 호출 허용 — 스펙 §8
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# OPENAI_API_KEY 는 환경변수에서 읽는다(소스 하드코딩 금지 — 노출된 기존 키는 폐기/회전 필요).
-client = OpenAI()
+_VALID_REACTIONS = ("like", "dislike", "none")
+
+# 복구 스캔이 띄운 파이프라인 태스크 참조 보관 (GC 로 태스크가 사라지는 것 방지)
+_recovery_tasks: set[asyncio.Task] = set()
+
+
+def _resume_stuck_pipelines() -> None:
+    """재시작 복구 스캔: grading/debating 잔류 글의 파이프라인을 재개한다.
+
+    파이프라인은 요청 단위 BackgroundTasks(인메모리)로만 돌기 때문에, 프로세스가
+    죽거나 graceful shutdown 으로 태스크가 취소되면 글이 grading/debating 에 남는다.
+    기동 시 이런 글을 조회해 run_debate_pipeline 을 다시 띄운다 (없으면 무한 폴링).
+    반드시 실행 중인 이벤트 루프 안(async startup)에서 호출해야 한다.
+    """
+    db = database.SessionLocal()
+    try:
+        stuck_ids = [
+            row[0]
+            for row in db.query(PostModel.id)
+            .filter(PostModel.status.in_([debate.STATUS_GRADING, debate.STATUS_DEBATING]))
+            .order_by(PostModel.id)
+            .all()
+        ]
+    finally:
+        db.close()
+    for post_id in stuck_ids:
+        task = asyncio.create_task(debate.run_debate_pipeline(post_id))
+        _recovery_tasks.add(task)
+        task.add_done_callback(_recovery_tasks.discard)
 
 
 @app.on_event("startup")
-def _on_startup():
-    # 기동 즉시 인구 집계 + 매일 4시 cron 등록 (테스트는 DISABLE_SCHEDULER 가드로 미기동)
+async def _on_startup():
+    # 기동 즉시 인구 집계 1회 + 매일 04:00 cron (DISABLE_SCHEDULER=1 이면 미기동)
     start_scheduler()
+    # 이전 프로세스에서 중단된 토론 파이프라인 재개 (스펙 §7-4 취지의 복구 경로)
+    _resume_stuck_pipelines()
 
 
 @app.on_event("shutdown")
 def _on_shutdown():
     shutdown_scheduler()
 
-class PostRequest(BaseModel):
-    content: str
+
+# ---------------------------------------------------------------------------
+# 헬스체크
+# ---------------------------------------------------------------------------
 
 
-class ReactionRequest(BaseModel):
-    reaction: str  # "like" | "dislike"
-
-
-class SignupRequest(BaseModel):
-    email: str
-    password: str
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-def evaluate_post_quality(user_post: str) -> int:
-    system_instruction = """
-    너는 커뮤니티의 모든 글을 검사하는 엄격하고 정밀한 채점관 AI야.
-    유저가 올린 글의 '고민의 깊이', '감정의 밀도', '논쟁 가능성'을 종합적으로 판단해서 0점부터 100점 사이의 정수 점수만 출력해줘.
-    
-    [채점 가이드라인]
-    - 90점 이상: 극단적인 감정 표현(예: 한강, 죽고싶다 등), 심각한 경제적/정서적 타격(투자 실패, 이별), 타인과 치열하게 토론할 만한 사회적/철학적 주제.
-    - 60~89점: 진지한 커리어 고민, 연애 상담, 가벼운 재테크 질문 등 조언이 필요한 글.
-    - 30~59점: 오늘 있었던 일 공유, 단순 유머, 영양가 없는 일상 잡담.
-    - 30점 미만: "배고프다", "날씨 좋네", "돈까스 땡긴다" 같이 맥락이 전혀 없는 한 줄짜리 낙서.
-    
-    ※ 경고: 설명이나 다른 말은 절대 하지 말고, 오직 '숫자(정수)'만 반환할 것. 예: 95
-    """
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": f"이 글의 점수를 매겨줘: '{user_post}'"}
-        ],
-        temperature=0.0
-    )
+@app.get("/api/health")
+def health(db: Session = Depends(get_db)):
+    """DB(SELECT 1) + AI 모드 상태 반환."""
+    db_ok = True
     try:
-        return int(response.choices[0].message.content.strip())
-    except ValueError:
-        return 50
-
-def generate_ai_comment(persona_prompt: str, user_post: str, previous_comments: str, length_hint: str) -> str:
-    system_instruction = (
-        "너는 'AI 광장'이라는 커뮤니티의 시민이야. 아래 페르소나에 맞춰 댓글을 달아줘.\n"
-        f"[너의 페르소나]\n{persona_prompt}\n"
-        f"[분량] {length_hint}"
-    )
-    user_content = f"유저의 게시글: '{user_post}'\n\n[현재 댓글 상황]\n{previous_comments}\n\n의견을 달아줘."
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": user_content}
-        ],
-        temperature=0.8
-    )
-    return response.choices[0].message.content
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+    return {"ok": True, "db": db_ok, "ai_mode": "fake" if ai_client.is_fake_mode() else "real"}
 
 
-def _count_comments(db: Session, post_id: int) -> int:
-    return db.query(CommentModel).filter(CommentModel.post_id == post_id).count()
+# ---------------------------------------------------------------------------
+# 인증 — 가입(자동 로그인) / 로그인
+# ---------------------------------------------------------------------------
 
 
-def _count_reactions(db: Session, post_id: int) -> int:
-    return db.query(ReactionModel).filter(ReactionModel.post_id == post_id).count()
+def _pick_signup_persona() -> tuple[str, str] | None:
+    """가입 시 배정할 (이름, 프롬프트) 1개.
+
+    페르소나 풀 모듈은 D 에이전트가 재정리 중이라 구조 변화에 견고하게 대응한다:
+    구 personas.random_persona → factions 의 Persona 풀 순으로 시도, 모두 실패 시 None.
+    """
+    try:
+        from personas import random_persona
+
+        name, prompt = random_persona()
+        return name, prompt
+    except Exception:
+        pass
+    try:
+        import random as _random
+
+        import factions
+
+        pool = list(getattr(factions, "PERSONAS", []) or [])
+        if pool:
+            p = _random.choice(pool)
+            return p.name, p.character_prompt
+    except Exception:
+        pass
+    return None
 
 
-def _build_chat_history(db: Session, post_id: int) -> str:
-    rows = (
-        db.query(CommentModel)
-        .filter(CommentModel.post_id == post_id)
-        .order_by(CommentModel.id.asc())
-        .all()
-    )
-    return "".join(f"{r.name}: {r.comment}\n" for r in rows)
-
-
-def _generate_more_comments(db: Session, db_post: PostModel, count: int) -> None:
-    """현재 댓글 수를 start 오프셋으로 페르소나를 순환 선택해 count개를 생성. 분량은 랜덤(FR-13)."""
-    start = _count_comments(db, db_post.id)
-    chat_history = _build_chat_history(db, db_post.id)
-    for name, prompt in get_personas(count, start=start):
-        comment_text = generate_ai_comment(prompt, db_post.content, chat_history, pick_length_style())
-        db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
-        chat_history += f"{name}: {comment_text}\n"
-
-# 📌 0. 인증 — 가입(자동 로그인) / 로그인
 @app.post("/api/auth/signup", status_code=201)
-def signup(request: SignupRequest, db: Session = Depends(get_db)):
-    exists = db.query(UserModel).filter(UserModel.email == request.email).first()
+def signup(body: SignupIn, db: Session = Depends(get_db)):
+    exists = db.query(UserModel).filter(UserModel.email == body.email).first()
     if exists is not None:
         raise HTTPException(status_code=409, detail="email already registered")
-    user = UserModel(email=request.email, password_hash=hash_password(request.password))
+    user = UserModel(email=body.email, password_hash=hash_password(body.password))
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    # 내부 AI 페르소나 1개 생성 (풀에서 랜덤). best-effort — 실패해도 가입은 유지(NFR).
-    try:
-        name, prompt = random_persona()
-        db.add(AiPersonaModel(user_id=user.id, display_name=name, persona_prompt=prompt))
-        db.commit()
-    except Exception:
-        db.rollback()
+    # 내부 AI 페르소나 1개 랜덤 배정 (자기 글의 호위대장 후보). best-effort — 실패해도 가입 유지.
+    picked = _pick_signup_persona()
+    if picked is not None:
+        try:
+            name, prompt = picked
+            db.add(AiPersonaModel(user_id=user.id, display_name=name, persona_prompt=prompt))
+            db.commit()
+        except Exception:
+            db.rollback()
 
     return {"token": create_token(user.id)}
 
 
 @app.post("/api/auth/login")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(UserModel).filter(UserModel.email == request.email).first()
-    if user is None or not verify_password(request.password, user.password_hash):
+def login(body: LoginIn, db: Session = Depends(get_db)):
+    user = db.query(UserModel).filter(UserModel.email == body.email).first()
+    if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="invalid credentials")
     return {"token": create_token(user.id)}
 
 
-# 📌 1. 과거에 저장된 모든 고민 글 + AI 댓글 리스트를 역순(최신순)으로 반환하는 API
+# ---------------------------------------------------------------------------
+# 글 — 목록 / 작성(즉시 201) / 상세(폴링 대상)
+# ---------------------------------------------------------------------------
+
+
 @app.get("/api/posts")
-def get_all_posts(db: Session = Depends(get_db)):
-    posts = db.query(PostModel).order_by(PostModel.id.desc()).all()
-    return posts
-
-# 📌 2. 고민 등록 시 채점 및 AI 배틀을 진행하고 그 결과를 PostgreSQL에 영구 저장하는 API
-@app.post("/api/posts")
-async def create_post(
-    request: PostRequest,
+def list_posts(
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),  # 로그인 필수 (FR-4)
+    current_user: UserModel | None = Depends(get_current_user_optional),
 ):
-    user_post = request.content
+    """글 목록 (id desc). 비로그인 허용 — is_mine/my_reaction 은 None/False."""
+    posts = db.query(PostModel).order_by(PostModel.id.desc()).all()
+    return {"posts": [build_post_summary(db, p, current_user) for p in posts]}
 
-    score = evaluate_post_quality(user_post)
-    base_limit = compute_base_limit(score)
-    # 반응 0 시점이므로 Final == Base. 초기 생성도 동일 수식 사용(FR-11). 잡담도 최소 10개(FR-1).
-    final_limit = compute_final_limit(base_limit, 0, get_current_population())
 
-    # 1. 원문 글 저장하여 고유 ID 확보 (작성자 연결 — 북극성 §4)
-    db_post = PostModel(content=user_post, score=score, author_user_id=current_user.id)
-    db.add(db_post)
+@app.post("/api/posts", status_code=201, response_model=PostDetailOut)
+def create_post(
+    body: PostCreateIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """글 저장 후 **즉시** 201 반환(status=grading, comments=[]). 채점/토론은 백그라운드."""
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content must not be empty")
+
+    post = PostModel(content=content, author_user_id=current_user.id, status="grading")
+    db.add(post)
     db.commit()
-    db.refresh(db_post)
+    db.refresh(post)
 
-    # 2. Final Limit 슬롯 = 타 유저 페르소나 출동(최대 2) + 공용 풀. 총 수 불변. 분량 랜덤(FR-13).
-    deployed = select_deployed_personas(db, exclude_user_id=current_user.id, k=2)
-    pool = get_personas(max(final_limit - len(deployed), 0))
-    commenters = (deployed + pool)[:final_limit]
-    chat_history = ""
-    for name, prompt in commenters:
-        comment_text = generate_ai_comment(prompt, user_post, chat_history, pick_length_style())
-        db.add(CommentModel(post_id=db_post.id, name=name, comment=comment_text))
-        chat_history += f"{name}: {comment_text}\n"
+    # 채점 → 진영 토론 → 중재 파이프라인 예약 (중복 실행은 debate 가 실행 시점에 방지)
+    debate.ensure_pipeline_scheduled(post.id, background_tasks)
 
-    db.commit()       # 트랜잭션 최종 확정
-    db.refresh(db_post)  # 자식 레코드(comments) 상태 동기화
-    _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드(응답에 comments 포함되도록)
-
-    return db_post
+    return build_post_detail(db, post, current_user)
 
 
-# 📌 3. 반응 등록 → 스택 적재 → Final 재계산 → 부족분 생성 → Cap 도달 시 조용히 종료
-@app.post("/api/posts/{post_id}/reaction")
+@app.get("/api/posts/{post_id}", response_model=PostDetailOut)
+def get_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel | None = Depends(get_current_user_optional),
+):
+    """글 상세 (Flutter 가 2초 폴링). 비로그인 허용."""
+    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    if post is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    return build_post_detail(db, post, current_user)
+
+
+# ---------------------------------------------------------------------------
+# 반응 — 글/댓글 좋아요·싫어요 (토글/변경/삭제) + 재점화 검사
+# ---------------------------------------------------------------------------
+
+
+def _validate_reaction(value: str) -> None:
+    if value not in _VALID_REACTIONS:
+        raise HTTPException(status_code=400, detail="reaction must be 'like', 'dislike' or 'none'")
+
+
+@app.post("/api/posts/{post_id}/reaction", response_model=PostDetailOut)
 def react_to_post(
     post_id: int,
-    request: ReactionRequest,
+    body: ReactionIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),  # 로그인 필수 (FR-4)
+    current_user: UserModel = Depends(get_current_user),
 ):
-    db_post = db.query(PostModel).filter(PostModel.id == post_id).first()
-    if db_post is None:
+    """글 반응 토글: 같은 값 재전송 또는 'none' → 삭제, 다른 값 → 교체 (인당 1표)."""
+    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    if post is None:
         raise HTTPException(status_code=404, detail="post not found")
-    if request.reaction not in ("like", "dislike"):
-        raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
+    _validate_reaction(body.reaction)
 
-    # 카운터 증분이 아니라 개별 레코드(스택)로 적재 → 동시 클릭 경합 제거(FR-9). 반응자 연결(북극성 §4).
-    db.add(ReactionModel(post_id=post_id, reaction_type=request.reaction, user_id=current_user.id))
+    existing = (
+        db.query(ReactionModel)
+        .filter(ReactionModel.post_id == post_id, ReactionModel.user_id == current_user.id)
+        .first()
+    )
+    if body.reaction == "none" or (existing is not None and existing.reaction_type == body.reaction):
+        if existing is not None:
+            db.delete(existing)  # 토글 해제 / 명시 삭제
+    elif existing is not None:
+        existing.reaction_type = body.reaction  # like <-> dislike 교체
+    else:
+        db.add(ReactionModel(post_id=post_id, user_id=current_user.id, reaction_type=body.reaction))
     db.commit()
-    db.refresh(db_post)
 
-    # 잠긴 스레드는 반응만 기록하고 생성/종료 없음 (FR-8)
-    if not db_post.is_locked:
-        base = compute_base_limit(db_post.score)
-        population = get_current_population()
-        total_reactions = _count_reactions(db, post_id)
-        final = compute_final_limit(base, total_reactions, population)
-        current = _count_comments(db, post_id)
-        if current < final:
-            _generate_more_comments(db, db_post, final - current)
-            db.commit()
-        if should_lock(_count_comments(db, post_id), compute_effective_cap(population)):
-            db_post.is_locked = True  # Cap 도달 → 중재자 없이 조용히 종료(FR-7)
-            db.commit()
+    # 종결 글이 새 final_limit 보다 작아졌으면 재점화 (§7). status 변경은 별도 세션에서 일어나므로 만료 후 재조회.
+    debate.check_reignite(post_id, background_tasks)
+    db.expire_all()
 
-    db.refresh(db_post)
-    _ = db_post.comments  # 직렬화 전 lazy 관계 강제 로드
-    return db_post
+    return build_post_detail(db, post, current_user)
 
 
-# 📌 4. 댓글 단위 반응(진화 신호 수집) — 유저·댓글당 1개 upsert. 한계선/생성에 영향 없음.
-@app.post("/api/comments/{comment_id}/reaction")
+@app.post("/api/comments/{comment_id}/reaction", response_model=CommentOut)
 def react_to_comment(
     comment_id: int,
-    request: ReactionRequest,
+    body: ReactionIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),  # 로그인 필수
+    current_user: UserModel = Depends(get_current_user),
 ):
+    """댓글 반응 토글 (verdict 판정 재료 + net_reaction 기여). 소속 글 재점화 검사 포함."""
     comment = db.query(CommentModel).filter(CommentModel.id == comment_id).first()
     if comment is None:
         raise HTTPException(status_code=404, detail="comment not found")
-    if request.reaction not in ("like", "dislike"):
-        raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
+    _validate_reaction(body.reaction)
 
     existing = (
         db.query(CommentReactionModel)
         .filter(
-            CommentReactionModel.user_id == current_user.id,
             CommentReactionModel.comment_id == comment_id,
+            CommentReactionModel.user_id == current_user.id,
         )
         .first()
     )
-    if existing is not None:
-        existing.reaction_type = request.reaction  # 재반응 → 교체(upsert)
+    if body.reaction == "none" or (existing is not None and existing.reaction_type == body.reaction):
+        if existing is not None:
+            db.delete(existing)
+    elif existing is not None:
+        existing.reaction_type = body.reaction
     else:
-        db.add(CommentReactionModel(
-            user_id=current_user.id,
-            comment_id=comment_id,
-            reaction_type=request.reaction,
-        ))
+        db.add(
+            CommentReactionModel(
+                comment_id=comment_id, user_id=current_user.id, reaction_type=body.reaction
+            )
+        )
     db.commit()
-    return {"ok": True}  # 개수 비노출 (FR-3)
+
+    # 댓글 반응도 net_reaction 에 포함되므로 소속 글의 재점화 조건을 검사한다.
+    debate.check_reignite(comment.post_id, background_tasks)
+
+    return build_comment_out(db, comment, current_user)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("COMEA_PORT", "8247")))

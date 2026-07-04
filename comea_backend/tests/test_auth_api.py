@@ -24,8 +24,8 @@ def test_protected_write_requires_token(client):
     assert client.post("/api/posts/1/reaction", json={"reaction": "like"}).status_code == 401
 
 
-def test_authed_post_sets_author(auth_client, monkeypatch):
-    import main
-    monkeypatch.setattr(main, "evaluate_post_quality", lambda p: 40)
+def test_authed_post_sets_author(auth_client):
+    # 새 스펙(§8): 응답 모델은 author_user_id 대신 is_mine / author_name 을 노출한다
     body = auth_client.post("/api/posts", json={"content": "내 글"}).json()
-    assert body["author_user_id"] is not None  # 작성자 연결됨 (AC-4)
+    assert body["is_mine"] is True                # 작성자 연결됨
+    assert body["author_name"] == "tester"        # email @ 앞부분

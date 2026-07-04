@@ -1,43 +1,51 @@
-"""글 점수 + 반응 총량 + 전체 유저수 기반 가변적 댓글 한계선 순수 로직.
+"""가변 댓글 한계선 순수 로직 (PRD 3.3 / 스펙 §4 — 단일 출처).
 
-외부 의존(DB/OpenAI) 없는 순수 함수만 둔다. PRD §3.3 수식의 단일 출처.
-서비스 핵심(소외 금지): 모든 유형의 Base Limit 은 10 이상.
+외부 의존(DB/OpenAI) 없는 순수 함수만 둔다.
+공식: final_limit = clamp(base + floor(net/k) + bonus, FLOOR, SAFETY_CEILING)
+
+net_reaction 정의: (글 like−dislike) + Σ(각 댓글 like−dislike, moderator 댓글 포함).
+리밋과 비교하는 댓글 수는 moderator 제외 카운트 (호출 측 책임).
 """
 
 # --- 설정 상수 ---
-BASE_HARD_CAP = 25  # 유저가 적을 때의 고정 상한. 유저수가 이를 넘으면 상한도 확장.
-ADJUST_STEP = 0.1   # 반응 1건(좋아요/싫어요 무관)당 증감률
+K_REACTIONS_PER_COMMENT = 3  # 순반응 k건당 댓글 1개 추가
+FLOOR = 2                    # 하한 — 어떤 글도 최소 2개 댓글은 보장 (소외 금지)
+SAFETY_CEILING = 500         # 상한 — 폭주 방지용 안전 천장
 
 
 def compute_base_limit(score: int) -> int:
-    """채점 점수 → 유형별 기본 한계선. 0개 유형 없음(소외 금지)."""
-    if score >= 90:
-        return 20
-    if score >= 60:
-        return 15
-    return 10
+    """채점 점수(0~100) → 기본 한계선.
 
-
-def compute_effective_cap(current_population: int) -> int:
-    """유저 적을 땐 고정 25, 유저수가 25를 넘으면 유저수에 비례해 상한 확장."""
-    return max(BASE_HARD_CAP, current_population)
-
-
-def compute_final_limit(base_limit: int, total_reactions: int, current_population: int) -> int:
-    """Final Limit = round( base × (1 + 총반응수 × STEP) ), [base, effective_cap] 클램프.
-
-    round 는 round-half-up(`int(x + 0.5)`)로 고정. 좋아요/싫어요 구분 없이 총량만 사용.
+    0~39 → 3 | 40~69 → 8 | 70~89 → 15 | 90~100 → 25
     """
-    cap = compute_effective_cap(current_population)
-    adjust_rate = total_reactions * ADJUST_STEP
-    final = int(base_limit * (1 + adjust_rate) + 0.5)
-    if final < base_limit:
-        final = base_limit
-    if final > cap:
-        final = cap
-    return final
+    if score >= 90:
+        return 25
+    if score >= 70:
+        return 15
+    if score >= 40:
+        return 8
+    return 3
 
 
-def should_lock(current_comment_count: int, effective_cap: int) -> bool:
-    """현재 댓글 수가 상한(Cap)에 도달하면 잠근다. 중재자 요약 없이 조용히 종료."""
-    return current_comment_count >= effective_cap
+def compute_population_bonus(mau: int) -> int:
+    """전체 유저 규모 → 보너스: max(0, floor(log10(max(mau, 1))) - 2).
+
+    100명=0, 1천=1, 1만=2. float log10 오차를 피하기 위해
+    양의 정수에서 floor(log10(n)) == len(str(n)) - 1 항등식을 사용한다.
+    """
+    n = max(mau, 1)
+    return max(0, (len(str(n)) - 1) - 2)
+
+
+def compute_final_limit(base_limit: int, net_reaction: int, population_bonus: int, k: int = 3) -> int:
+    """최종 한계선 = clamp(base + (net // k) + bonus, FLOOR, SAFETY_CEILING).
+
+    주의: 파이썬 // 는 음수도 내림 — 그대로 사용 (net=-1, k=3 → -1).
+    """
+    raw = base_limit + (net_reaction // k) + population_bonus
+    return max(FLOOR, min(SAFETY_CEILING, raw))
+
+
+def should_conclude_early(net_reaction: int, comment_count: int) -> bool:
+    """조기 종결: 순반응이 -2 이하이고 댓글이 FLOOR 개 이상 달렸으면 토론을 접는다."""
+    return net_reaction <= -2 and comment_count >= FLOOR

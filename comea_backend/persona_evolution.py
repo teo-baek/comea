@@ -1,15 +1,16 @@
-"""페르소나 진화 엔진: comment_reactions ⋈ comments.name 합산 → ai_personas.trait_params 갱신.
+"""페르소나 진화 엔진: comment_reactions ⋈ comments.persona_name 합산 → ai_personas.trait_params 갱신.
 
-planned.md 팁대로 단순 합산(+1 like / −1 dislike). 저장만(댓글 생성 사용은 다음 슬라이스).
+단순 합산(+1 like / −1 dislike). 저장만(댓글 생성 사용은 다음 슬라이스).
+스테이지 2 스키마(스펙 §3)의 comments.persona_name/content 컬럼을 사용한다.
 """
 import database
 from database import AiPersonaModel, CommentModel, CommentReactionModel
 
 
 def compute_persona_preferences(db, user_id: int) -> dict:
-    """유저의 댓글 반응을 페르소나(comments.name)별 +1/−1 합산한 선호 맵."""
+    """유저의 댓글 반응을 페르소나(comments.persona_name)별 +1/−1 합산한 선호 맵."""
     rows = (
-        db.query(CommentModel.name, CommentReactionModel.reaction_type)
+        db.query(CommentModel.persona_name, CommentReactionModel.reaction_type)
         .join(CommentReactionModel, CommentReactionModel.comment_id == CommentModel.id)
         .filter(CommentReactionModel.user_id == user_id)
         .all()

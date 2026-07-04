@@ -1,4 +1,8 @@
-"""일일 인구 배치: COUNT(users) → current_population. APScheduler 인프로세스."""
+"""일일 인구 배치: COUNT(users) → current_population 캐시 갱신 (스펙 §8, PRD 3.5).
+
+- 기동 시 1회 즉시 갱신 + 매일 04:00 cron (APScheduler 인프로세스).
+- 테스트는 DISABLE_SCHEDULER=1 로 미기동.
+"""
 import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -7,18 +11,17 @@ from sqlalchemy.orm import Session
 import database
 import population
 from database import UserModel
-from persona_evolution import run_persona_evolution
 
 _scheduler = None
 
 
 def compute_population(db: Session) -> int:
-    """전체 가입 유저수."""
+    """전체 가입 유저수 카운트 (MAU 단순화 — 스펙 §8)."""
     return db.query(UserModel).count()
 
 
 def run_population_update() -> None:
-    """유저수를 집계해 current_population 에 주입. 실패해도 전파하지 않음(AC-5)."""
+    """유저수를 집계해 current_population 에 주입. 실패해도 서버 기동을 막지 않는다."""
     try:
         db = database.SessionLocal()
         try:
@@ -30,15 +33,13 @@ def run_population_update() -> None:
 
 
 def start_scheduler() -> None:
-    """기동 즉시 1회 집계 + 매일 4시 cron 등록. 테스트(DISABLE_SCHEDULER)면 미기동(D5)."""
+    """기동 즉시 1회 집계 + 매일 04:00 cron 등록. DISABLE_SCHEDULER=1 이면 미기동."""
     if os.getenv("DISABLE_SCHEDULER"):
         return
     global _scheduler
-    run_population_update()    # 기동 즉시 1회 (0 방지, FR-2)
-    run_persona_evolution()    # 기동 즉시 페르소나 진화 1회
+    run_population_update()  # 기동 즉시 1회 (population_bonus 0 방치 방지)
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(run_population_update, "cron", hour=4)
-    _scheduler.add_job(run_persona_evolution, "cron", hour=4)
     _scheduler.start()
 
 

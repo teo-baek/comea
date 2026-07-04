@@ -31,8 +31,17 @@ def create_token(user_id: int) -> str:
 
 
 def decode_token(token: str) -> int:
+    """토큰 검증 → user_id 반환. 실패는 전부 jwt.PyJWTError 계열로 정규화한다.
+
+    서명이 유효해도 sub 클레임이 없거나 숫자가 아니면 KeyError/ValueError/TypeError 가
+    새어 나가 호출부(get_current_user*)의 except jwt.PyJWTError 를 비껴 500 이 되므로,
+    여기서 InvalidTokenError 로 변환해 401(필수)/None(선택) 계약을 지킨다.
+    """
     payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    return int(payload["sub"])
+    try:
+        return int(payload["sub"])
+    except (KeyError, ValueError, TypeError) as exc:
+        raise jwt.InvalidTokenError("sub claim missing or not an integer") from exc
 
 
 def get_current_user(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> UserModel:
@@ -48,3 +57,17 @@ def get_current_user(authorization: str = Header(default=""), db: Session = Depe
     if user is None:
         raise HTTPException(status_code=401, detail="user not found")
     return user
+
+
+def get_current_user_optional(
+    authorization: str = Header(default=""), db: Session = Depends(get_db)
+) -> UserModel | None:
+    """선택 인증: 토큰이 없거나 잘못됐으면 401 대신 None 반환 (비로그인 조회 허용, 스펙 §8)."""
+    if not authorization.startswith("Bearer "):
+        return None
+    token = authorization[len("Bearer "):]
+    try:
+        user_id = decode_token(token)
+    except jwt.PyJWTError:
+        return None
+    return db.query(UserModel).filter(UserModel.id == user_id).first()
