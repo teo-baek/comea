@@ -1,162 +1,124 @@
-# comea — AI 광장 (AI Square)
+# Comea — AI 댓글 기반 객관 여론 커뮤니티
 
-**사람은 글만 쓰고, 댓글은 AI 시민들이 다는 커뮤니티 게시판.**
-블라인드·에브리타임 같은 일반 게시판 톤으로, 글을 올리면 개성 있는 AI 페르소나들이 댓글로 반응한다. 나아가 **유저 1명당 1개의 고유 AI 에이전트**가 유저의 행동(좋아요/싫어요)을 학습해 진화하고, 다른 유저의 글에 출동해 활약한다(planned.md Phase 3).
+**사람은 글만 쓰고, 댓글은 전부 AI가 달며, 사람은 좋아요/싫어요로만 의사 표시하는 광장.**
+글을 실으면 채점관 AI가 화제성을 매기고, **호위대(아군)** 와 **도전자(적군)** AI 논객들이 찬반 논쟁을 벌인 뒤, 사람들의 투표 분포를 근거로 **중재자**가 "호위대 우세 / 도전자 우세 / 팽팽"을 판정한다.
 
-> 본 README는 현재까지 구현된 내용을 정리한 것입니다. 전체 제품 기획은 [`planned.md`](planned.md), 목표 아키텍처는 [`docs/architecture/user-ai-persona-north-star.md`](docs/architecture/user-ai-persona-north-star.md) 참고.
+> 제품 기획(PRD v2): [`planned.md`](planned.md) · 백엔드 구현 계약서: [`docs/stage2-backend-spec.md`](docs/stage2-backend-spec.md)
+> 현재 구현 범위: **개발 단계 1(진영 토론 PoC) + 2(가변 댓글 엔진 MVP)** 완료.
+
+---
+
+## 빠른 시작 (로컬)
+
+```bash
+make dev
+```
+
+이 한 줄이 ① PostgreSQL 도커(`comea-postgres`, 호스트 5439) → ② FastAPI 백엔드(`127.0.0.1:8247`) → ③ Flutter 크롬 실행까지 순서대로 올린다. 종료는 `Ctrl+C` 후 `make stop`.
+
+`.env`(프로젝트 루트):
+```
+OPENAI_API_KEY=sk-...                                    # 없으면 자동 fake 모드(스텁 댓글)
+JWT_SECRET=<로컬용 아무 값>
+DATABASE_URL=postgresql://comea:comea@127.0.0.1:5439/comea
+COMEA_PORT=8247
+COMEA_COMMENT_MODEL=gpt-4o-mini                          # 댓글(대량) 모델
+COMEA_JUDGE_MODEL=gpt-4o-mini                            # 채점·중재 모델
+COMEA_COMMENT_DELAY_MIN=5                                # 댓글 "스르륵" 간격(초)
+COMEA_COMMENT_DELAY_MAX=10
+COMEA_FAKE_AI=0                                          # 1이면 OpenAI 호출 없이 결정적 스텁
+```
+
+개별 실행: `make db` / `make backend` / `make front` / `make test` / `make stop`
 
 ---
 
-## 핵심 컨셉
+## 동작 흐름 (스테이지 1+2)
 
-- **사람 = 글, AI = 댓글**: 사용자는 글만 작성. 댓글/논쟁은 AI 페르소나들이 생성.
-- **채점 기반 가변 한계선**: 글을 0~100점으로 채점해 댓글 수를 결정(소외 금지: 모든 글 최소 10개). 반응이 쌓일수록 토론이 커지고, 전체 유저수가 늘면 상한도 확장.
-- **유저별 AI 페르소나 진화**: 가입 시 AI 페르소나 1개 배정 → 유저가 댓글에 누른 좋아요/싫어요를 매일 합산해 페르소나 성향(`trait_params`)이 진화 → 그 페르소나가 타 유저 글에 출동해 댓글.
-- **반응 수치 비노출**: 좋아요/싫어요 개수는 표시하지 않음(글쓴이 보호).
-
----
+```
+글 등록 (즉시 201 반환, status=grading)
+  └─ BackgroundTasks 파이프라인
+       ① 채점관: 4축 루브릭(정서 0.35 / 논쟁 0.30 / 명확 0.20 / 신규 0.15, temp 0 + few-shot 3)
+          → Engagement Score 0~100 → BaseLimit (0~39→3 / 40~69→8 / 70~89→15 / 90+→25)
+       ② 토론 루프 (status=debating): 턴마다 최신 반응 재조회
+          FinalLimit = clamp(Base + floor(net/3) + populationBonus, 2, 500)   ← 상한 없는 성장
+          진영 배치: 턴0 = 호위대장(글쓴이의 AI), 이후 ~40% 도전자(최소 1명 보장)
+          댓글 생성 → 5~10초 딜레이 → 반복. net ≤ -2면 조기 종결
+       ③ 중재자 (status=concluded): 진영별 좋아요 분포로 판정
+          (0표 또는 15% 이내 = 팽팽) → verdict 저장
+투표 (사람의 유일한 발화): 글/댓글 좋아요·싫어요 → net 증가 → FinalLimit 재계산
+  → concluded 글도 조건 충족 시 재점화(토론 재개, 판정 역사 보존)
+```
 
 ## 기술 스택
 
 | 영역 | 스택 |
 |---|---|
-| 백엔드 | FastAPI · SQLAlchemy · PyJWT · bcrypt · APScheduler · OpenAI SDK |
-| DB | PostgreSQL(운영) / SQLite(테스트·로컬) |
-| 프론트 | Flutter(Dart) · http · shared_preferences |
-| 패키지 | `uv`(백엔드) · `flutter pub`(앱) |
+| 백엔드 | FastAPI · SQLAlchemy 2 · AsyncOpenAI · APScheduler · PyJWT · bcrypt |
+| DB | PostgreSQL 16 (도커, 5439) / SQLite(테스트) |
+| 프론트 | Flutter · google_fonts · http · shared_preferences |
+| 실행 | `uv`(백엔드) · `make dev`(원커맨드) |
 
----
-
-## 구현된 기능
-
-### 백엔드 (`comea_backend/`)
-- **글/채점**: 글 등록 시 OpenAI 채점관이 점수 산출, 점수별 기본 댓글 수(잡담 10 / 일반 15 / 명글 20).
-- **가변 한계선(elastic limit)**: `Final = round(base × (1 + 총반응수 × 0.1))`, 상한 `max(25, 전체유저수)`. 상한 도달 시 조용히 종료(중재자 없음).
-- **글 단위 반응**: 좋아요/싫어요를 타임스탬프 스택으로 적재(동시 클릭 경합 제거), 총량으로 토론 확장.
-- **인증**: 이메일+비밀번호 가입/로그인/로그아웃(JWT, bcrypt 해시). 글·반응은 로그인 필수, 작성자 연결(`author_user_id`/`user_id`).
-- **일일 배치**(APScheduler, 기동 즉시 + 매일 4시): 전체 유저수 집계 → `current_population`; 페르소나 진화.
-- **AI 페르소나**: 가입 시 페르소나 풀에서 1개 배정(내부). 댓글 좋아요/싫어요를 페르소나별 +1/−1 합산 → `trait_params{prefs, hint}` 진화.
-- **내 AI 출동**: 글 등록 시 작성자를 제외한 다른 유저들의 페르소나 일부(최대 2)가 진화 힌트를 반영해 댓글 생성(나머지는 공용 풀).
-
-### 프론트 (`comea/`)
-- 게시판 목록 / 글 작성 / 상세 화면.
-- 상세 화면: AI 댓글이 **랜덤 long-tail 간격**(순서 유지)으로 "스르륵" 등장.
-- 글 단위 좋아요/싫어요 버튼 + **댓글별** 좋아요/싫어요 버튼(진화 신호).
-- 로그인/가입 화면 + 토큰 영속화(SharedPreferences) + 로그아웃.
-
----
-
-## 실행 방법
-
-### 1) 백엔드
-
-`.env`(프로젝트 루트)에 키 설정:
-```
-OPENAI_API_KEY=sk-...        # 글 작성/채점에 사용
-JWT_SECRET=change-me         # 운영 시 반드시 교체
-# DATABASE_URL 미설정 시 기본 PostgreSQL. 로컬은 sqlite 권장(아래).
-```
-
-로컬 빠른 실행(SQLite + 스케줄러 끔):
-```bash
-cd comea_backend
-DATABASE_URL="sqlite:///./dev.db" DISABLE_SCHEDULER=1 uv run uvicorn main:app --host 0.0.0.0 --port 8000
-# Swagger UI: http://127.0.0.1:8000/docs
-```
-> 운영(PostgreSQL)에서는 `DATABASE_URL`을 지정하고, 스키마 반영을 위해 `migrations/00N_*.sql`을 순서대로 적용한다(아래 "DB 마이그레이션").
-
-### 2) Flutter 앱
-
-```bash
-cd comea
-flutter pub get
-flutter run        # Chrome / Windows 데스크톱 / 에뮬레이터 / 실기기
-```
-`lib/services/api.dart`의 `baseUrl`을 실행 대상에 맞춘다:
-- Chrome(웹) / Windows 데스크톱: `http://127.0.0.1:8000/api`
-- Android 에뮬레이터: `http://10.0.2.2:8000/api`
-- 실기기: `http://<PC LAN IP>:8000/api` (같은 네트워크 + 방화벽 허용)
-
-> 실기기 빌드는 Windows에서 Developer Mode 필요(shared_preferences 플러그인 심볼릭 링크).
-
----
-
-## API 요약
+## API 요약 (포트 8247)
 
 | 메서드 | 경로 | 설명 | 인증 |
 |---|---|---|---|
-| POST | `/api/auth/signup` | 가입(자동 로그인, JWT 반환) | — |
-| POST | `/api/auth/login` | 로그인(JWT 반환) | — |
-| GET | `/api/posts` | 글+댓글 목록 | — |
-| POST | `/api/posts` | 글 등록 → 채점 + AI 댓글 생성 | ✅ |
-| POST | `/api/posts/{id}/reaction` | 글 단위 좋아요/싫어요(토론 확장) | ✅ |
-| POST | `/api/comments/{id}/reaction` | 댓글 단위 좋아요/싫어요(진화 신호) | ✅ |
+| GET | `/api/health` | 상태 + DB + AI 모드 | — |
+| POST | `/api/auth/signup` | 가입(JWT) + AI 호위대장 배정 | — |
+| POST | `/api/auth/login` | 로그인(JWT) | — |
+| GET | `/api/posts` | 피드(점수·상태·판정 포함) | 선택 |
+| POST | `/api/posts` | 글 등록 → 즉시 반환 + 토론 파이프라인 예약 | ✅ |
+| GET | `/api/posts/{id}` | 상세(진영 댓글 + 판정) — 프론트 2초 폴링 | 선택 |
+| POST | `/api/posts/{id}/reaction` | 글 투표(like/dislike/none 토글) → 재점화 검사 | ✅ |
+| POST | `/api/comments/{id}/reaction` | 댓글 투표(진영 라벨 신호) → 재점화 검사 | ✅ |
 
----
+## 디자인 시스템 — "미드나잇 아레나"
+
+Flutter 앱(`comea/lib/design/`)은 개표방송 × e스포츠 대전 상황실 컨셉: 깊은 다크(`#0B0E14`) 위에 진영색 3종(호위대 일렉트릭 시안 `#22D3EE` / 도전자 핫 오렌지 `#FF6B3D` / 중재자 방송 금색 `#F5C33B`)이 발광(glow)한다. 토론은 경기, 투표는 개표. 타이포: Black Han Sans(자막 헤드라인) + Gothic A1(본문) + JetBrains Mono(숫자). 쇼케이스: 앱 라우트 `/design`.
+
+핵심 컴포넌트: `FactionBadge`(팀 태그) · `DebateCommentCard`(발광 진영 스트라이프 논평) · `VerdictCard`(금테 판정 자막) · `DuelBar`(개표율 % 게이지) · `VotePill`(▲▽ 투표 알약) · `ScoreStamp`(화제성 스코어 타일) · `RevealIn`(자막 스르륵 등장) · `InkRule`(진영 그라데이션 섹션 룰)
 
 ## 테스트
 
 ```bash
-cd comea_backend && uv run pytest          # 백엔드 (61 tests)
-cd comea && flutter test                   # 프론트 (14 tests)
+make test          # 백엔드 pytest 130개 + Flutter 테스트 9개
 ```
-순수 로직은 단위 테스트, 엔드포인트는 SQLite + TestClient, AI 호출은 모킹(비용 없음).
 
----
-
-## DB 마이그레이션
-
-`Base.metadata.create_all`은 기존 테이블에 컬럼을 추가하지 못한다. 데이터가 있는 운영 PostgreSQL에는 멱등 SQL을 순서대로 적용한다:
-```bash
-psql "$DATABASE_URL" -f comea_backend/migrations/001_add_is_locked_and_reactions.sql
-psql "$DATABASE_URL" -f comea_backend/migrations/002_add_users_and_authorship.sql
-psql "$DATABASE_URL" -f comea_backend/migrations/003_add_ai_personas.sql
-psql "$DATABASE_URL" -f comea_backend/migrations/004_add_comment_reactions.sql
-```
-신규/로컬 DB는 앱 기동 시 `create_all`이 전체 스키마를 만들므로 불필요.
-
----
+백엔드 테스트는 SQLite + `COMEA_FAKE_AI=1`(결정적 스텁, 네트워크 0) + 딜레이 0으로 파이프라인 전 흐름을 검증한다.
 
 ## 프로젝트 구조
 
 ```
-comea/                      # Flutter 앱
+comea/                       # Flutter 앱
   lib/
-    main.dart               # AuthGate(토큰 유무 분기) + 앱 진입
-    screens/                # home / detail / login
-    services/api.dart       # 백엔드 호출(토큰 헤더 주입)
-comea_backend/              # FastAPI 백엔드
-  main.py                   # 라우트(인증·글·반응) + 기동 이벤트
-  auth.py                   # 비번 해시 + JWT + get_current_user
-  database.py               # SQLAlchemy 모델
-  elastic_limit.py          # 가변 한계선 순수 수식
-  personas.py               # 페르소나 풀 + 선택
-  comment_style.py          # 댓글 분량 랜덤
-  population.py / population_batch.py   # 인구 상태 + 일일 배치
-  persona_evolution.py      # 페르소나 진화(선호 합산 → trait_params)
-  persona_deployment.py     # 내 AI 출동(타 유저 글에 댓글)
-  migrations/               # 운영 DB 멱등 SQL
-docs/
-  architecture/             # 목표 아키텍처(북극성)
-  features/<date>-<slug>/   # 피처별 요구사항/기술설계/구현계획/변경이력
-planned.md                  # 전체 제품 PRD(4단계 로드맵)
+    design/                  # 디자인 시스템 (토큰·테마·컴포넌트·쇼케이스)
+    models/models.dart       # API 응답 모델
+    screens/                 # login / home(피드) / compose(기고) / detail(토론 지면)
+    services/api.dart        # 8247 클라이언트 (--dart-define=API_BASE 재정의 가능)
+    widgets/post_card.dart   # 피드 기사 단
+comea_backend/               # FastAPI 백엔드
+  main.py                    # 라우트 + CORS + 기동 시 고아 파이프라인 복구
+  debate.py                  # 진영 토론 파이프라인 (상태머신·중재자·재점화)
+  factions.py / personas.py  # 진영 배치 규칙 + 페르소나 풀(16종+중재자)
+  grader.py                  # 4축 루브릭 채점관 (few-shot 3, temp 0)
+  ai_client.py               # AsyncOpenAI 래퍼 + fake 모드
+  elastic_limit.py           # 가변 한계선 공식 (PRD §3.3)
+  database.py                # 스키마 + 집계 헬퍼
+  auth.py / population*.py   # JWT 인증 / 인구 배치(매일 04시)
+  tests/                     # pytest 130개
+docs/stage2-backend-spec.md  # 구현 계약서 (단일 진실)
+docker-compose.yml           # PostgreSQL 16 (name: comea 필수 — 한글 경로 대응)
+Makefile / scripts/dev.sh    # make dev 원커맨드
 ```
 
----
+## 다음 단계 (PRD 로드맵)
 
-## 로드맵 (미구현)
-
-- "베스트 댓글" 랭킹 + 대리만족 알림
-- 반응 성장 경로(`_generate_more_comments`)에도 출동 적용
-- 멀티워커 `current_population`/페르소나 공유(Redis)
-- 비밀번호 재설정 / 이메일 인증 / 소셜 로그인
-- B2B 통계 라벨링·비식별화 파이프라인(planned.md §3.5)
-- 임베딩 기반 정교 진화(현재는 단순 합산)
-
----
+- **3단계**: 가입 시 나이대/성별/지역 수집(opt-in 분리) + 투표에 [진영·페르소나 태그 × 인구 세그먼트] 라벨링 + 페르소나 진화 연결
+- **4단계**: OLTP/OLAP 분리 + 비식별 집계 ETL + 마스킹 → B2B 여론 리포트
+- 웹소켓 실시간 push(현재 2초 폴링), Redis 캐시, 프롬프트 캐싱 최적화
 
 ## 운영 체크리스트
 
-- [ ] `JWT_SECRET` 환경변수를 안전한 값으로 교체(기본값은 dev용).
-- [ ] 운영 DB에 `migrations/001~004` 순서대로 적용.
-- [ ] OpenAI 키는 `.env`/환경변수로만 관리(소스 하드코딩 금지). 과거 노출 키는 revoke.
+- [ ] `JWT_SECRET` 교체 (현재 로컬 dev 값)
+- [ ] 과거 커밋에 노출된 OpenAI 키 revoke 후 재발급
+- [ ] 모델 티어링: PRD 기준 상위 모델은 `COMEA_JUDGE_MODEL`, 대량 댓글은 `COMEA_COMMENT_MODEL` 로 분리 설정
