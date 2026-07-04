@@ -1,29 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'design/design.dart';
+import 'design/showcase_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/api.dart';
 
 void main() {
-  runApp(const AiSquareApp());
+  runApp(const ComeaApp());
 }
 
-class AiSquareApp extends StatelessWidget {
-  const AiSquareApp({super.key});
+class ComeaApp extends StatelessWidget {
+  const ComeaApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AI Square',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.light,
-        ),
-      ),
+      title: 'Comea',
+      theme: buildComeaTheme(),
       home: const AuthGate(),
+      routes: {'/design': (_) => const ShowcaseScreen()},
       debugShowCheckedModeBanner: false,
     );
   }

@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
-import 'detail_screen.dart';
-import '../services/api.dart';
 
+import '../design/design.dart';
+import '../models/models.dart';
+import '../services/api.dart';
+import '../widgets/post_card.dart';
+import 'compose_screen.dart';
+import 'detail_screen.dart';
+
+/// 홈 — 오늘의 광장(피드). 사람의 글이 실리고, AI의 논평이 붙는 1면.
 class HomeScreen extends StatefulWidget {
   final ApiService api;
   final VoidCallback? onLogout;
@@ -14,167 +20,125 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   ApiService get _api => widget.api;
-  List<Map<String, dynamic>> _posts = [];
-  final TextEditingController _textController = TextEditingController();
-  bool _isLoading = false;
+  List<Post> _posts = [];
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    // 📌 앱이 켜지자마자 데이터베이스에 저장된 모든 글을 긁어옴
-    _fetchPostsFromDatabase();
+    _refresh();
   }
 
-  // 📌 1. [NEW] 백엔드 PostgreSQL DB에서 과거 글 목록을 조회해오는 함수 (GET)
-  Future<void> _fetchPostsFromDatabase() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+  Future<void> _refresh() async {
     try {
-      final posts = await _api.getPosts();
+      final posts = await _api.fetchPosts();
+      if (!mounted) return;
       setState(() {
         _posts = posts;
+        _loading = false;
+        _error = null;
       });
     } catch (e) {
-      _showErrorSnackBar("데이터를 불러오는 중 오류가 발생했습니다.");
-    } finally {
+      if (!mounted) return;
       setState(() {
-        _isLoading = false;
+        _loading = false;
+        _error = e is ApiException ? e.message : '글 목록을 불러오지 못했습니다';
       });
     }
   }
 
-  // 📌 2. 새로운 고민을 등록하고 결과를 DB에 저장하는 함수 (POST)
-  Future<void> _submitPostToServer(String content) async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final post = await _api.createPost(content);
-      setState(() {
-        // 서버가 반환한 영구 저장된 객체를 리스트 맨 앞에 즉시 주입 (id 포함 — 반응 호출에 필요)
-        _posts.insert(0, {
-          "id": post["id"],
-          "content": post["content"],
-          "score": post["score"],
-          "is_locked": post["is_locked"],
-          "comments": List<Map<String, dynamic>>.from(post["comments"]),
-        });
-      });
-    } catch (e) {
-      _showErrorSnackBar("서버와 통신할 수 없습니다.");
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+  Future<void> _openCompose() async {
+    final created = await Navigator.of(context).push<Post>(
+      MaterialPageRoute(builder: (_) => ComposeScreen(api: _api)),
     );
+    if (created == null || !mounted) return;
+    setState(() => _posts = [created, ..._posts]);
+    await _openDetail(created); // 등록 직후 토론이 벌어지는 지면으로 직행
   }
 
-  void _showWriteDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: !_isLoading,
-      builder: (context) => AlertDialog(
-        title: const Text('📝 새로운 고민 던지기'),
-        content: TextField(
-          controller: _textController,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: 'AI 시민들을 흔들어놓을 고민을 입력하세요...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final text = _textController.text.trim();
-              if (text.isNotEmpty) {
-                Navigator.pop(context);
-                await _submitPostToServer(text);
-                _textController.clear();
-              }
-            },
-            child: const Text('등록'),
-          ),
-        ],
+  Future<void> _openDetail(Post post) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetailScreen(api: _api, postId: post.id, initial: post),
       ),
     );
+    if (mounted) _refresh(); // 돌아오면 투표·댓글 수 갱신
   }
 
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🤖 AI 광장 (comea)', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
+        title: const ComeaWordmark(size: 21),
         actions: [
-          // 새로고침 버튼 추가
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _fetchPostsFromDatabase,
+            tooltip: '로그아웃',
+            onPressed: widget.onLogout,
+            icon: const Icon(Icons.logout, size: 20, color: ComeaColors.textSoft),
           ),
-          if (widget.onLogout != null)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: widget.onLogout,
-            ),
+          const SizedBox(width: 6),
         ],
       ),
-      body: Stack(
-        children: [
-          _posts.isEmpty && !_isLoading
-              ? const Center(child: Text('광장이 비어 있습니다.\n첫 번째 고민을 던져보세요!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)))
-              : ListView.builder(
-                  itemCount: _posts.length,
-                  itemBuilder: (context, index) {
-                    final post = _posts[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: ListTile(
-                        title: Text(post["content"] as String, maxLines: 2, overflow: TextOverflow.ellipsis),
-                        trailing: Chip(
-                          label: Text('${post["score"]}점'),
-                          backgroundColor: (post["score"] as int) >= 90 ? Colors.red.shade100 : Colors.blue.shade100,
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => DetailScreen(
-                                postId: post["id"] as int,
-                                postContent: post["content"] as String,
-                                score: post["score"] as int,
-                                realComments: List<Map<String, dynamic>>.from(post["comments"]),
-                              ),
-                            ),
-                          );
-                        },
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openCompose,
+        backgroundColor: ComeaColors.text,
+        foregroundColor: ComeaColors.bg,
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ComeaRadii.card)),
+        icon: const Icon(Icons.edit_outlined, size: 18),
+        label: Text('기고하기', style: ComeaType.sans(size: 14, weight: FontWeight.w800, color: ComeaColors.bg)),
+      ),
+      body: RefreshIndicator(
+        color: ComeaColors.text,
+        onRefresh: _refresh,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+            : ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
+                children: [
+                  const InkRule(title: '오늘의 광장 · The Forum'),
+                  const SizedBox(height: 14),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Column(
+                        children: [
+                          Text('지면을 불러오지 못했습니다', style: text.titleMedium),
+                          const SizedBox(height: 6),
+                          Text(_error!, style: text.bodySmall, textAlign: TextAlign.center),
+                          const SizedBox(height: 14),
+                          OutlinedButton(onPressed: _refresh, child: const Text('다시 시도')),
+                        ],
                       ),
-                    );
-                  },
-                ),
-          if (_isLoading)
-            Container(
-              color: Colors.black12,
-              child: const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
-            ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _isLoading ? null : _showWriteDialog,
-        child: const Icon(Icons.edit),
+                    )
+                  else if (_posts.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 56),
+                      child: Column(
+                        children: [
+                          Text('◈', style: TextStyle(fontSize: 22, color: ComeaColors.textFaint)),
+                          const SizedBox(height: 12),
+                          Text('아직 지면이 비어 있습니다', style: text.headlineSmall),
+                          const SizedBox(height: 6),
+                          Text('첫 고민을 실으면 AI 논객들이 찬반 논평을 시작합니다.',
+                              style: text.bodySmall, textAlign: TextAlign.center),
+                        ],
+                      ),
+                    )
+                  else
+                    for (final (i, post) in _posts.indexed) ...[
+                      RevealIn(
+                        key: ValueKey('post-${post.id}'),
+                        delay: staggerDelay(i < 6 ? i : 6, base: const Duration(milliseconds: 70)),
+                        child: PostCard(post: post, onTap: () => _openDetail(post)),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                ],
+              ),
       ),
     );
   }
